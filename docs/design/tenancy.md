@@ -26,7 +26,7 @@ Grants are authored as rules, not modal prompts. The operator writes (or accepts
 
 ### Revocation
 
-Default: killable — in-flight invocations terminate, partial state preserved as audit fact.
+Default: killable  -  in-flight invocations terminate, partial state preserved as audit fact.
 
 Exception: drain-only for verbs whose mid-operation termination would corrupt state or leak more than completion (MITM mid-handshake, exploit-runner mid-payload, credential-test mid-submission).
 
