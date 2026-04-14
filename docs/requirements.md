@@ -1,4 +1,4 @@
-# Requirements — Dioptron
+# Requirements  -  Dioptron
 
 ## R1. Purpose
 
@@ -11,7 +11,7 @@ The runtime is a local web substrate that:
 
 These five functions are co-equal. The operator is the policy authority on every capability. The runtime obeys; the rules engine enforces; the operator governs.
 
-## R2. Tenancy model — peer users
+## R2. Tenancy model  -  peer users
 
 R2.1 Multi-tenant by design. Tenant classes: **operator** (the human), **agent** (long-lived autonomous, e.g. nous), **sub-agent** (short-lived, dispatched by an agent or by the operator via kanon).
 

@@ -3,7 +3,7 @@
 Deferred to future phases where the spec author lacks signal to commit.
 
 ## Q2. Desktop UI specifics
-R10.2 commits to theatron-or-equivalent as v1. The actual interaction model — tab strip vs. command palette vs. spatial canvas vs. something agent-native — is undecided. Requires prototyping, not specification.
+R10.2 commits to theatron-or-equivalent as v1. The actual interaction model  -  tab strip vs. command palette vs. spatial canvas vs. something agent-native  -  is undecided. Requires prototyping, not specification.
 
 ## Q3. Agent-proposed rule review workflow
 R9.7 requires the capability. The review queue UX and merge ceremony are undecided.

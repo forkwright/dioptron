@@ -9,7 +9,7 @@ Local web substrate that transforms the open web into structured, persistent, qu
 ```
 dioptron/
 ├── crates/                 # Rust workspace crates
-│   └── (TBD — see design/topology.md for the 11-layer + tenancy plane)
+│   └── (TBD  -  see design/topology.md for the 11-layer + tenancy plane)
 ├── standards/              # Coding standards (kanon-synced)
 ├── docs/
 │   ├── design/             # Architecture and design docs
@@ -37,7 +37,7 @@ Follow kanon standards (canonical source: `kanon/crates/basanos/standards/`). Ke
 - **Canonical interface**: Rust trait surface over unix socket + plegma-quic. Desktop UI is just another client.
 - **Three bands**: engine (net, render, script, store, identity), instrument (ingest, rules, session, ui), operations (ops). Tenancy is cross-cutting.
 - **Ops sandboxing**: per-verb landlock+seccomp. Exploit-runner in dedicated network namespace. Credentials as ephemeral handles.
-- **Pure Rust**: same as aletheia — no C++ in the brain
+- **Pure Rust**: same as aletheia  -  no C++ in the brain
 - **Single operator**: multi-tenant for human+agents, not for multiple humans
 - **Rendering floor**: operator's top-1000 sites without breakage (v1)
 - **Fallback browser**: chromium-based fallback for sites that defeat native rendering, quarantined with provenance
