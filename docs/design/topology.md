@@ -35,7 +35,7 @@ Policy engine governing all runtime behavior. Rules scope to tenant class, indiv
 Session lifecycle: create, fork, transfer, archive. Owning tenant with concurrent read access. Co-tenancy coordination (operator watches agent work in real time). Session state: cookie jar, history, working set, knowledge scope.
 
 ### D10. UI
-Desktop surface (theatron-or-equivalent) and terminal surface (ratatui). Both are clients of the canonical programmatic interface (D12). No privileged access — same trait surface as agents. Tab/session management, grants surface, rule editor, knowledge browser.
+Desktop surface (theatron-or-equivalent) and terminal surface (ratatui). Both are clients of the canonical programmatic interface (D12). No privileged access  -  same trait surface as agents. Tab/session management, grants surface, rule editor, knowledge browser.
 
 ## Operations Band
 
@@ -46,25 +46,25 @@ Per-verb sandboxing (landlock+seccomp). Verb categories: TLS introspection, CT m
 
 ## Cross-Cutting
 
-### D12. Tenancy Plane — `forkwright-tenancy`
+### D12. Tenancy Plane  -  `forkwright-tenancy`
 
 Not a layer in the request path. Cross-cutting service owning:
 
 - **Tenant registry**: identities for operator, agents, sub-agents. Public identifier, signing key, standing grants, budget ledger.
 - **Grant evaluator**: given (tenant, verb, target, session) → authorize/deny with rule chain. Called by every verb.
 - **Delegation chain manager**: parent-child relationships, grant narrowing on dispatch, revocation propagation.
-- **Canonical programmatic interface**: Rust trait surface over unix socket (local) and plegma-quic (remote). Wire format: rkyv. All operations — fetch, ingest, query, invoke verb, fork session, hand off, propose rule, query grants, query budget, dry-run — are methods on this surface.
+- **Canonical programmatic interface**: Rust trait surface over unix socket (local) and plegma-quic (remote). Wire format: rkyv. All operations  -  fetch, ingest, query, invoke verb, fork session, hand off, propose rule, query grants, query budget, dry-run  -  are methods on this surface.
 - **Co-tenancy coordinator**: concurrent read, single-writer, real-time event streams, atomic ownership handoff.
 
-## Peer Integration Surface — `forkwright-cognition`
+## Peer Integration Surface  -  `forkwright-cognition`
 
 Six traits for peer system integration:
-- `KnowledgeSink` — push knowledge to/from aletheia
-- `MemoryGraph` — query aletheia's knowledge graph
-- `RulesBackend` — share rules with aletheia's policy engine
-- `SignalEnvironment` — receive akroasis network posture
-- `SignalEmitter` — emit events to akroasis
-- `CredentialVault` — credential storage (proton-pass interim, clean-room vault planned)
+- `KnowledgeSink`  -  push knowledge to/from aletheia
+- `MemoryGraph`  -  query aletheia's knowledge graph
+- `RulesBackend`  -  share rules with aletheia's policy engine
+- `SignalEnvironment`  -  receive akroasis network posture
+- `SignalEmitter`  -  emit events to akroasis
+- `CredentialVault`  -  credential storage (proton-pass interim, clean-room vault planned)
 
 ## MCP Surface
 
