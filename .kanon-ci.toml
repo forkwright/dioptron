@@ -1,0 +1,35 @@
+# Dioptron CI pipeline.
+#
+# Dioptron is docs-only today (design phase) - no Cargo.toml, no crates,
+# nothing for the default Rust gate to exercise. A single sentinel stage
+# keeps the forge post-receive hook honest: it confirms the worktree
+# checked out and terminates cleanly, which is all the CI contract
+# promises for a design-phase repo.
+#
+# When dioptron grows the `crates/` workspace described in
+# docs/design/topology.md, replace `pipeline.stages` with the full Rust
+# gate:
+#
+#     stages = ["cargo fmt", "cargo check", "cargo clippy", "cargo nextest", "kanon lint"]
+#
+# Those stage names resolve against the default-Rust-gate catalog in
+# archeion::ci_config, so no [stages.<name>] blocks are required at that
+# point either.
+
+[pipeline]
+stages = ["checkout-ok"]
+
+[stages.checkout-ok]
+cmd = "true"
+timeout_secs = 10
+
+# The 03f-e independent verifier replays the main pipeline's claims
+# (clippy warning count, lint violation count, build success) in a
+# fresh worktree. Dioptron's pipeline makes no claims to replay - the
+# sentinel stage is literally `true`. The verifier's default build
+# probe (`cargo check --all-features --tests`) then fails because
+# there's no Cargo workspace, and flags a false divergence. Disable
+# the verifier here; re-enable when the pipeline grows real Rust
+# stages for it to reproduce.
+[verifier]
+enabled = false
