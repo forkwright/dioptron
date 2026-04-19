@@ -1,0 +1,38 @@
+# Dioptron
+
+> Sovereign web runtime with agent co-tenancy: operator and AI agents as peer users of a single capability surface for browsing, ingesting, querying, and acting on the web.
+
+Dioptron is in **specification phase**. No Rust code exists yet — `crates/` is empty. This file indexes the design documents that define what dioptron will be.
+
+## Architecture
+
+Three bands across eleven layers, plus a cross-cutting tenancy plane. The [CLAUDE.md](CLAUDE.md) repo-root file captures the locked decisions (peer tenancy, canonical Rust trait surface, pure Rust, single operator, rendering floor, chromium fallback).
+
+## Design
+
+- [docs/design/topology.md](docs/design/topology.md): the 3-band, 11-layer layout (engine, instrument, operations) plus the D12 tenancy plane
+- [docs/design/tenancy.md](docs/design/tenancy.md): peer tenant model — operator, agents, sub-agents as tenant classes; grants not capabilities
+- [docs/design/decisions.md](docs/design/decisions.md): resolved technical decisions (D17.*)
+- [docs/design/training-data.md](docs/design/training-data.md): behavioral emission taxonomy; dioptron as the largest training-data source for the forkwright stack
+- [docs/design/vision.md](docs/design/vision.md): dual purpose — operator browser and nous web access
+
+## Requirements and lexicon
+
+- [docs/requirements.md](docs/requirements.md): R1–R12 requirements the runtime must satisfy
+- [docs/lexicon.md](docs/lexicon.md): project name registry (Greek for structure, English for code)
+
+## Planning
+
+- [planning/open-questions.md](planning/open-questions.md): Q1–Q5 deferred decisions pending resolution
+
+## Standards
+
+Dioptron follows kanon standards. Canonical source: `kanon/crates/basanos/standards/` — `RUST.md`, `TESTING.md`, `SECURITY.md`, `ARCHITECTURE.md`, `WRITING.md`.
+
+## Status
+
+Specification only. Crates, build targets, and `cargo` commands listed in CLAUDE.md are forward-looking — they will work once the first crate lands. Until then, treat this repo as a design document set.
+
+## License
+
+AGPL-3.0-or-later. See [NOTICE](NOTICE) for the AI-training prohibition clause.
