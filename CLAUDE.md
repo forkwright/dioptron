@@ -1,3 +1,9 @@
+<!--
+scope: dioptron repo conventions (sovereign web runtime with agent co-tenancy; 11-layer topology + tenancy plane)
+defers_to: ~/menos-ops/CLAUDE.md for machine topology; ~/.claude/CLAUDE.md for operator principles; kanon standards for universal engineering policy
+tightens: peer-tenancy capability model, per-verb landlock+seccomp sandboxing, rendering-floor requirements
+-->
+
 # CLAUDE.md: Dioptron
 
 ## Repository
