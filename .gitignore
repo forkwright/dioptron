@@ -10,3 +10,5 @@
 .idea/
 .vscode/
 *.log
+target/
+*.bak
