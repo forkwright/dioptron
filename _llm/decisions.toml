@@ -1,0 +1,52 @@
+[meta]
+name = "dioptron"
+repo = "forkwright/dioptron"
+generated = false
+source_docs = [
+  "CLAUDE.md",
+  "docs/design/decisions.md",
+  "kanon/projects/dioptron/STATE.md",
+]
+
+[decisions]
+summary = "Locked decisions for the dioptron sovereign web runtime specification."
+
+[[decision]]
+id = "D-peer-tenancy"
+title = "Operator and agents are peer tenants"
+status = "accepted"
+context = "Human UI and agent access must not fork into privileged and second-class capability stacks."
+decision = "Model operator, agents, and sub-agents as tenants whose differences are grants, not capabilities."
+consequences = "Every capability is exposed once through the canonical surface."
+
+[[decision]]
+id = "D-rust-trait-surface"
+title = "Canonical Rust trait over local transports"
+status = "accepted"
+context = "The runtime needs an agent- and UI-consumable interface without webview-only assumptions."
+decision = "Expose the primary interface as Rust traits over unix socket and plegma-quic."
+consequences = "Desktop UI is just another client, and agents can consume the same verbs."
+
+[[decision]]
+id = "D-three-band-topology"
+title = "Engine, instrument, operations, and tenancy"
+status = "accepted"
+context = "The browser-like substrate needs core web, knowledge acquisition, action, and tenant policy separated."
+decision = "Use three bands across eleven layers plus cross-cutting tenancy."
+consequences = "Implementation slices can start with D2 net, D5 store, and D12 tenancy without losing the full model."
+
+[[decision]]
+id = "D-blitz-render-floor"
+title = "Use blitz render primitives as D3 foundation"
+status = "accepted"
+context = "Render foundation needed evaluation across Servo, Verso, Blitz, Gosub, and lower-level text/render stacks."
+decision = "Use blitz-dom, blitz-html, and blitz-traits with Vello, omitting blitz-shell."
+consequences = "Dioptron owns windowing/event loop while keeping an embeddable Rust render foundation."
+
+[[decision]]
+id = "D-ops-sandbox"
+title = "Sandbox operations per verb"
+status = "accepted"
+context = "Active web operations can cross security boundaries."
+decision = "Use landlock+seccomp per verb and a dedicated network namespace for exploit-runner behavior."
+consequences = "Operational capability remains explicit and auditable."

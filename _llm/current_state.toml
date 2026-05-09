@@ -1,0 +1,31 @@
+[meta]
+name = "dioptron"
+repo = "forkwright/dioptron"
+generated = false
+source_docs = [
+  "kanon/projects/dioptron/STATE.md",
+  "README.md",
+]
+
+[state]
+summary = "Dioptron is a scaffolded pre-implementation repo with spec v0.5 complete and the render-band foundation decided."
+current_phase = "Pre-implementation specification."
+updated = "2026-04-26"
+
+[[recent]]
+date = "2026-04-26"
+item = "Blitz render-band decision locked; one document per agent peer at render layer."
+
+[[recent]]
+date = "2026-04-22"
+item = "NOTICE canonicalized and forge sync timer active."
+
+[[open_threads]]
+name = "Phase 1 slice"
+issue = 0
+status = "Likely first slice is D2 net, D5 store, and D12 tenancy core."
+
+[[open_threads]]
+name = "script band"
+issue = 0
+status = "JavaScript engine evaluation remains separate from the render-band decision."
