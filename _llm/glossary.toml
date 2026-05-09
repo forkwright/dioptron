@@ -6,7 +6,7 @@ source_docs = [
   "README.md",
   "CLAUDE.md",
   "docs/lexicon.md",
-  "kanon/projects/dioptron/STATE.md",
+  "<canonical-state-doc>/STATE.md",
 ]
 
 [glossary]

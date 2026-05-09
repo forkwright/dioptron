@@ -32,7 +32,7 @@ Content extraction pipeline: HTML → structured data, PDF → text, feeds → i
 Policy engine governing all runtime behavior. Rules scope to tenant class, individual tenant, delegation depth. Rule facts include tenant identity, grant evaluations, delegation events, proposals, handoffs. Standing query budgets. Operations band authorization.
 
 ### D9. Session
-Session lifecycle: create, fork, transfer, archive. Owning tenant with concurrent read access. Co-tenancy coordination (operator watches agent work in real time). Session state: cookie jar, history, working set, knowledge scope.
+Session lifecycle: create, fork, transfer, archive. Owning tenant with concurrent read access. Co-tenancy coordination through real-time event streams across tenant peers. Session state: cookie jar, history, working set, knowledge scope.
 
 ### D10. UI
 Desktop surface (theatron-or-equivalent) and terminal surface (ratatui). Both are clients of the canonical programmatic interface (D12). No privileged access  -  same trait surface as agents. Tab/session management, grants surface, rule editor, knowledge browser.
