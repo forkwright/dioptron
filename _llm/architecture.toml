@@ -1,0 +1,36 @@
+[meta]
+name = "dioptron"
+repo = "forkwright/dioptron"
+generated = false
+source_docs = [
+  "README.md",
+  "CLAUDE.md",
+  "docs/design/topology.md",
+  "kanon/projects/dioptron/STATE.md",
+]
+
+[architecture]
+summary = "Specification-stage sovereign web runtime where operator and agents share one peer-tenanted capability surface for browsing, ingest, querying, and action."
+layers = [
+  "engine-net",
+  "engine-render",
+  "engine-script",
+  "engine-store",
+  "engine-identity",
+  "instrument-ingest",
+  "instrument-rules",
+  "instrument-session",
+  "instrument-ui",
+  "operations",
+  "tenancy",
+]
+
+[[architecture.crates]]
+name = "crates"
+path = "crates"
+role = "TBD implementation crates for the 11-layer topology; no Rust code has landed yet."
+
+[[interfaces]]
+name = "canonical capability trait"
+kind = "rust-trait"
+path = "docs/design/tenancy.md"

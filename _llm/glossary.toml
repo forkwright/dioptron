@@ -1,0 +1,43 @@
+[meta]
+name = "dioptron"
+repo = "forkwright/dioptron"
+generated = false
+source_docs = [
+  "README.md",
+  "CLAUDE.md",
+  "docs/lexicon.md",
+  "kanon/projects/dioptron/STATE.md",
+]
+
+[glossary]
+description = "Domain vocabulary for the dioptron web runtime."
+
+[[terms]]
+term = "dioptron"
+definition = "Seeing-through instrument; the sovereign web runtime for operator and agent co-tenancy."
+canonical = true
+
+[[terms]]
+term = "tenant"
+definition = "Operator, agent, or sub-agent identity consuming the same capability surface under different grants."
+canonical = true
+
+[[terms]]
+term = "grant"
+definition = "A policy permission that differentiates tenants without changing the underlying capability."
+canonical = true
+
+[[terms]]
+term = "engine"
+definition = "Core web band: net, render, script, store, and identity layers."
+canonical = true
+
+[[terms]]
+term = "instrument"
+definition = "Knowledge acquisition band: ingest, rules, session, and UI layers."
+canonical = true
+
+[[terms]]
+term = "ops"
+definition = "Active operations band for web actions, sandboxed per verb."
+canonical = true
