@@ -2,7 +2,7 @@
 
 Three bands across eleven layers, plus a cross-cutting tenancy plane.
 
-## Engine Band
+## Engine band
 
 Core web engine capabilities. These layers do the hard work of interacting with the web.
 
@@ -21,7 +21,7 @@ Persistent storage for all runtime state. Tiered knowledge store: artifacts (tie
 ### D6. Identity
 Per-session fingerprint identity synthesized from real browser populations. Canvas/WebGL/Audio noise injection. Font enumeration defense. Timing attack mitigation. TLS fingerprint rotation. All defenses auditable.
 
-## Instrument Band
+## Instrument band
 
 Knowledge acquisition and interaction management. These layers transform raw web interaction into structured knowledge.
 
@@ -37,14 +37,14 @@ Session lifecycle: create, fork, transfer, archive. Owning tenant with concurren
 ### D10. UI
 Desktop surface (theatron-or-equivalent) and terminal surface (ratatui). Both are clients of the canonical programmatic interface (D12). No privileged access  -  same trait surface as agents. Tab/session management, grants surface, rule editor, knowledge browser.
 
-## Operations Band
+## Operations band
 
 Active capability surface. Sharp-end operations requiring explicit operator authorization.
 
 ### D11. Ops
 Per-verb sandboxing (landlock+seccomp). Verb categories: TLS introspection, CT monitoring, active probing, SRI tracking, canary monitoring, MITM (operator-declared targets), credential testing, exploit runner, cover traffic. Each verb declares revocation behavior (killable or drain-only). Credential material as ephemeral handles from vault.
 
-## Cross-Cutting
+## Cross-cutting
 
 ### D12. Tenancy Plane  -  `forkwright-tenancy`
 
@@ -56,7 +56,7 @@ Not a layer in the request path. Cross-cutting service owning:
 - **Canonical programmatic interface**: Rust trait surface over unix socket (local) and plegma-quic (remote). Wire format: rkyv. All operations  -  fetch, ingest, query, invoke verb, fork session, hand off, propose rule, query grants, query budget, dry-run  -  are methods on this surface.
 - **Co-tenancy coordinator**: concurrent read, single-writer, real-time event streams, atomic ownership handoff.
 
-## Peer Integration Surface  -  `forkwright-cognition`
+## Peer integration surface  -  `forkwright-cognition`
 
 Six traits for peer system integration:
 - `KnowledgeSink`  -  push knowledge to/from aletheia
@@ -66,6 +66,6 @@ Six traits for peer system integration:
 - `SignalEmitter`  -  emit events to akroasis
 - `CredentialVault`  -  credential storage (proton-pass interim, clean-room vault planned)
 
-## MCP Surface
+## MCP surface
 
 Outward-only. Exposes query operations to external agents that can't speak the canonical Rust interface. Read-only by default; write operations require explicit grant.

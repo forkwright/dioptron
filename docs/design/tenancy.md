@@ -1,6 +1,6 @@
 # Tenancy Model
 
-## Tenant Classes
+## Tenant classes
 
 | Class | Lifetime | Created by | Example |
 |-------|----------|-----------|---------|
@@ -8,7 +8,7 @@
 | **Agent** | Long-lived | Operator config | nous/syn, nous/demiurge |
 | **Sub-agent** | Short-lived | Agent or operator dispatch | Task-specific workers |
 
-## Capability Equality
+## Capability equality
 
 Every capability exists once. No capability is implemented twice. No capability exists for one class that does not exist for the others. Differences are grants and presentation, not capability.
 
@@ -38,6 +38,6 @@ Exception: drain-only for verbs whose mid-operation termination would corrupt st
 - Forkable: creates new session lineage with provenance
 - Co-tenancy: operator observes agent's session in real time, can take ownership at any moment
 
-## Budget Accounting
+## Budget accounting
 
 Every invocation declares cost in: time, fetches, tokens, operations-band budget. Debited against session and tenant budgets. Tenants can query remaining budget at any time.
