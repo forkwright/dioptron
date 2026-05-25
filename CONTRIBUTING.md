@@ -54,7 +54,7 @@ If the forge is unreachable, push to `github` and open a GitHub PR. When the for
 
 ## CI configuration
 
-`.kanon-ci.toml` at the repo root defines the pipeline. Dioptron is docs-only today, so the pipeline is a single sentinel stage that confirms the checkout landed. When dioptron grows a crates workspace, expand the pipeline to the full Rust gate (fmt, check, clippy, nextest, kanon lint) - no CI-side changes needed.
+`.kanon-ci.toml` at the repo root defines the pipeline. Dioptron is docs-only today, so the pipeline runs docs-phase lint checks that do not require a Cargo workspace. When dioptron grows a crates workspace, expand the pipeline to the full Rust gate (fmt, check, clippy, nextest, kanon lint) - no CI-side changes needed.
 
 ## Branch naming and commit format
 
