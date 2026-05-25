@@ -44,6 +44,14 @@ decision = "Use blitz-dom, blitz-html, and blitz-traits with Vello, omitting bli
 consequences = "Dioptron owns windowing/event loop while keeping an embeddable Rust render foundation."
 
 [[decision]]
+id = "D-pure-rust-render-lock"
+title = "Lock pure-Rust rendering with no C++ fallback"
+status = "locked"
+context = "The project needed to resolve whether v1 allowed a Chromium or native-browser fallback for origins that defeat native rendering."
+decision = "No Chromium, headless-browser, or C++ rendering fallback enters the workspace. D3 native Rust rendering is the only supported render path."
+consequences = "Origins that fail native rendering become native parity gaps. The v1 daily-driver target yields to the sovereignty invariant when the two conflict."
+
+[[decision]]
 id = "D-ops-sandbox"
 title = "Sandbox operations per verb"
 status = "accepted"
