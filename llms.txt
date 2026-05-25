@@ -23,3 +23,6 @@ Structured LLM corpus:
 - [docs/design/topology.md](docs/design/topology.md): 3-band, 11-layer topology
 - [docs/design/tenancy.md](docs/design/tenancy.md): peer tenant model
 - [docs/design/decisions.md](docs/design/decisions.md): technical decisions
+- [docs/design/rendering-completeness.md](docs/design/rendering-completeness.md): render-floor evidence contract
+- [docs/design/script-band-evaluation.md](docs/design/script-band-evaluation.md): D4 script-band evaluation contract
+- [docs/design/ingest-rules-taxonomy.md](docs/design/ingest-rules-taxonomy.md): D7/D8 taxonomy and evidence patterns
