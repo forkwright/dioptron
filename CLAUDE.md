@@ -83,6 +83,9 @@ Scopes: crate name or `docs`, `infra`, `design`
 
 ## Build & test
 
+Dioptron is docs-only until the first Rust workspace lands. These are the
+intended gates once `Cargo.toml` exists:
+
 ```bash
 cargo check --workspace
 cargo test --workspace

@@ -1,6 +1,6 @@
 # Training Data Architecture
 
-## Behavioral Emission Taxonomy
+## Behavioral emission taxonomy
 
 Every operator-relevant and agent-relevant event emitted in a format directly consumable by local fine-tuning pipelines, with tenant behavior as implicit labels.
 
@@ -26,10 +26,10 @@ Every event records:
 
 Datasets filterable by: tenant class, individual tenant, delegation depth, grant scope.
 
-## Cross-System Contribution
+## Cross-system contribution
 
 The runtime contributes to `forkwright-corpus` workspace crate alongside aletheia, akroasis, kanon, harmonia. The runtime is the largest contributor but not the owner.
 
-## Schema Governance
+## Schema governance
 
 Dataset taxonomy enumerated and versioned. Each type declares: source events, label structure, downstream model class, privacy class, default retention. Adding a new type requires explicit schema declaration.

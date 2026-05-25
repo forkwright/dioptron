@@ -16,7 +16,7 @@ Structured LLM corpus:
 - [_llm/decisions.toml](_llm/decisions.toml): accepted web-runtime decisions
 - [_llm/glossary.toml](_llm/glossary.toml): dioptron vocabulary
 
-## Agent Entry Points
+## Agent entry points
 
 - [README.md](README.md): overview and documentation map
 - [CLAUDE.md](CLAUDE.md): locked decisions and repo conventions
