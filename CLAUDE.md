@@ -1,6 +1,6 @@
 <!--
 scope: dioptron repo conventions (sovereign web runtime with agent co-tenancy; 11-layer topology + tenancy plane)
-defers_to: ~/menos-ops/CLAUDE.md for machine topology; ~/.claude/CLAUDE.md for operator principles; kanon standards for universal engineering policy
+defers_to: ~/metis-ops/CLAUDE.md for machine topology; ~/.claude/CLAUDE.md for operator principles; kanon standards for universal engineering policy
 tightens: peer-tenancy capability model, per-verb landlock+seccomp sandboxing, rendering-floor requirements
 -->
 
@@ -93,4 +93,4 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 - Don't add dependencies without justification
 - Don't modify CI workflows without understanding the full pipeline
-- No filler words: comprehensive, robust, leverage, streamline, modernize, strategic, enhance
+- No filler words: `comprehensive`, `robust`, `leverage`, `streamline`, `modernize`, `strategic`, `enhance`
