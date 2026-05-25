@@ -52,6 +52,22 @@ decision = "No Chromium, headless-browser, or C++ rendering fallback enters the 
 consequences = "Origins that fail native rendering become native parity gaps. The v1 daily-driver target yields to the sovereignty invariant when the two conflict."
 
 [[decision]]
+id = "D-render-evidence-floor"
+title = "Measure rendering completeness with an operator corpus"
+status = "accepted"
+context = "R10.2 and D17.9 require a measurable operator top-1000 rendering floor before render-band code can claim completeness."
+decision = "Use a versioned operator top-1000 origin corpus, deterministic capture protocol, severity taxonomy, immutable evidence bundles, and native-gap tracking as the render-completeness contract."
+consequences = "Render-band implementation cannot redefine success after the fact; failing origins remain native parity work under the pure-Rust lock."
+
+[[decision]]
+id = "D-script-band-v1-scope"
+title = "Evaluate D4 as v1 dynamic extraction scope"
+status = "accepted"
+context = "The v1 product scope includes world-monitor behavior with first-order intelligence, which requires dynamic extraction coverage for scripted pages."
+decision = "D4 is in v1 scope, with mozjs, rusty_v8, and limited/no-JS evaluated against sovereignty, sandboxability, DOM binding cost, Web API coverage, unsafe/vendor audit, and maintenance cost."
+consequences = "Limited/no-JS can be an early phase but not the final D4 answer; Chromium and headless-browser fallbacks remain excluded."
+
+[[decision]]
 id = "D-ops-sandbox"
 title = "Sandbox operations per verb"
 status = "accepted"

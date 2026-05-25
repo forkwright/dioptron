@@ -28,4 +28,4 @@ status = "Likely first slice is D2 net, D5 store, and D12 tenancy core."
 [[open_threads]]
 name = "script band"
 issue = 0
-status = "JavaScript engine evaluation remains separate from the render-band decision."
+status = "JavaScript engine evaluation remains v1 scope for dynamic extraction; see docs/design/script-band-evaluation.md."

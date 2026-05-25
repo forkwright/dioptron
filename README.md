@@ -25,6 +25,9 @@ Operator and agents are peer users. Every capability exists once, consumed throu
 - [docs/design/topology.md](docs/design/topology.md)  -  Layer topology
 - [docs/design/tenancy.md](docs/design/tenancy.md)  -  Multi-tenant model
 - [docs/design/decisions.md](docs/design/decisions.md)  -  Resolved technical decisions
+- [docs/design/rendering-completeness.md](docs/design/rendering-completeness.md)  -  R10.2/D17.9 evidence floor
+- [docs/design/script-band-evaluation.md](docs/design/script-band-evaluation.md)  -  D4 evaluation and v1 scope
+- [docs/design/ingest-rules-taxonomy.md](docs/design/ingest-rules-taxonomy.md)  -  D7/D8 taxonomy and implementation plan
 - [docs/design/training-data.md](docs/design/training-data.md)  -  Behavioral emission taxonomy
 - [docs/lexicon.md](docs/lexicon.md)  -  Project name registry
 

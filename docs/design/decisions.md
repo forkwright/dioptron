@@ -27,6 +27,8 @@ Engine band: slow cadence, reproducible builds, operator-initiated. Operations b
 ## D17.9 Rendering completeness floor
 v1: renders operator's top-1000 most-visited origins without operator-visible breakage. Measurable, testable, operator-specific.
 
+Measurement contract: `docs/design/rendering-completeness.md`.
+
 ## D17.10 Capability grant ceremony
 Grants authored as rules. First-contact requests surface as notification with pre-drafted rule. Desktop UI has dedicated grants surface. No modal prompts.
 
