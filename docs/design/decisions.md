@@ -9,8 +9,8 @@ Default nous query posture: tier 1 first, tier 2 if insufficient confidence, tie
 ## D17.3 Identity layer distribution sourcing
 Initial corpus from public fingerprint datasets (Mozilla, EFF Panopticlick, academic crawls). Refresh via akroasis passive observation when integrated. Distributions versioned and auditable. Unknown fingerprint properties: rules engine surfaces request, falls back to synthesized plausible value with audit flag.
 
-## D17.4 Compatibility fallback ingestion
-Fallback captures ingested with fallback provenance tag, routed to artifacts subpartition. Contradictions between native and fallback captures recorded as facts (signal: origin behavior depends on fingerprint). Fallback is operator-only by default; agents consume structured ingestion.
+## D17.4 Pure-Rust rendering lock
+Dioptron does not use Chromium, headless browsers, or C++ rendering fallbacks. Native Rust rendering through the D3 render band is the only supported render path. Origins that fail to render are tracked as native-rendering coverage gaps and native parity work, not fallback candidates.
 
 ## D17.5 Standing query economics
 Standing queries declare fetch budget and schedule. Rules engine and cost accounting enforce both. Fetches jittered across plausible browsing patterns. Akroasis posture gates when integrated. Warning when pattern crosses fingerprinting threshold.
