@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Report security issues to cody.kickertz@pm.me. Include a description of the issue, reproduction steps if applicable, and any relevant version or environment details.
+Report security issues to cody@forkwright.com. Include a description of the issue, reproduction steps if applicable, and any relevant version or environment details.
 
 Expected response: acknowledgement within 72 hours. No bug bounty program.
 
