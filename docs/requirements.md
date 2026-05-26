@@ -38,6 +38,7 @@ R4.2 Parse and extract structured content from HTML, PDF, and common document fo
 R4.3 Execute JavaScript in a sandboxed engine for dynamic content extraction.
 R4.4 Store fetched content as immutable artifacts with provenance metadata.
 R4.5 Ingest artifacts into a tiered knowledge store: raw captures (tier 3), extracted facts (tier 2), verified knowledge (tier 1).
+
 R4.6 Detect contradictions between new and existing knowledge across tiers.
 R4.7 Support standing queries: recurring fetch-and-ingest on a schedule with budget controls.
 R4.8 Full-text search and semantic search across the knowledge store.
@@ -51,6 +52,7 @@ R5.2 No cross-session fingerprint linkability unless the operator explicitly ena
 R5.3 Cookie isolation per session with operator-visible cookie jar.
 R5.4 Referrer policy enforcement: strict-origin by default, configurable per rule.
 R5.5 Canvas/WebGL/AudioContext fingerprint defense via noise injection calibrated to real distributions.
+
 R5.6 Font enumeration defense.
 R5.7 Timing attack defense on network and rendering paths.
 R5.8 TLS fingerprint (JA3/JA4) rotation from real client populations.
@@ -71,6 +73,7 @@ R7.2 TLS introspection: certificate chain analysis, CT log monitoring, pinning v
 R7.3 Active probing: port scanning, service fingerprinting, banner grabbing (operator-authorized targets only).
 R7.4 SRI tracking: subresource integrity monitoring for script supply-chain changes.
 R7.5 Canary monitoring: detect changes to warrant canary pages.
+
 R7.6 Full active capability surface: MITM (operator-declared targets), credential testing, exploit runner. Operator is the safety; rules engine enforces; runtime obeys.
 R7.7 Cover traffic generation: plausible browsing patterns to mask operational activity.
 R7.8 Operations audit: every active operation logged with full provenance, never deletable by the acting tenant.
@@ -78,7 +81,9 @@ R7.9 Certificate Transparency monitoring for operator-owned domains.
 
 ## R8. Training data requirements
 
-R8.1 Every operator-relevant and agent-relevant event emitted in a format directly consumable by local fine-tuning pipelines. Event taxonomy: captures with attention scores, contradiction events with resolutions, rule overrides, tier-promotion outcomes, form submissions with follow-up, query-to-selection pairs, active-capability invocations with outcomes, agent strategy traces, operator-overrides-agent events.
+R8.1 Every operator-relevant and agent-relevant event emitted in a format directly consumable by local fine-tuning pipelines.
+
+Event taxonomy: captures with attention scores, contradiction events with resolutions, rule overrides, tier-promotion outcomes, form submissions with follow-up, query-to-selection pairs, active-capability invocations with outcomes, agent strategy traces, operator-overrides-agent events.
 
 R8.2 Every event records acting tenant identity, grant chain, session, and rule outcome. Datasets filterable by tenant class, individual tenant, delegation depth, or grant scope.
 
@@ -92,6 +97,7 @@ R9.1 Capability discovery: any tenant can query available verbs given current gr
 R9.2 Dry-run mode: every verb supports dry-run returning facts, cost, and rule chain without committing.
 R9.3 Streaming results: ingestion, fetch, and query operations stream partial results.
 R9.4 Cost accounting: every invocation declares cost in time, fetches, tokens, and operations budget.
+
 R9.5 Failure recovery: every long-running operation resumable across restarts.
 R9.6 Rules introspection: tenant can ask "which rules would fire if I attempted X."
 R9.7 Rule proposal: agents can propose rule additions/modifications. Proposals enter operator review queue.
