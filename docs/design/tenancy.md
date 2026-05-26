@@ -10,7 +10,7 @@
 
 ## Capability equality
 
-Every capability exists once. No capability is implemented twice. No capability exists for one class that does not exist for the others. Differences are grants and presentation, not capability.
+Grants and presentation differ across tenant classes; the trait surface does not. Each verb is implemented exactly once. Every tenant class reaches the same set of verbs  -  the difference is which grants are in effect.
 
 The desktop UI calls the same trait surface that agents call. It has no special access.
 
