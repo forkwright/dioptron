@@ -1,3 +1,47 @@
+# WHY(kanon#2522): replaces dioptron's trailer-only passthrough (previously
+# `uses: forkwright/.github/.github/workflows/gate-attestation.yml@main` --
+# note: pinned to the branch `main`, not a commit sha, unlike every other
+# repo in this wave; a rename/force-push on the org-default workflow would
+# silently change dioptron's gate behavior with no diff to review. This
+# adoption replaces it with a sha-free `@main` reference to kanon's own repo
+# too, per the shared template shape -- if pin-freshness matters here, it's
+# the same open question ROLLOUT.md already flags fleet-wide, not new to
+# dioptron) with the kanon-owned hybrid gate.
+#
+# WARNING(pre-implementation repo -- read before trusting the with: block):
+# dioptron has NO Cargo.toml, NO rust-toolchain(.toml), and NO
+# .github/workflows/ci.yml anywhere in the tree. README/CLAUDE.md both
+# describe it as design-phase only ("crates/ (TBD -- see
+# docs/design/topology.md)"; planning/open-questions.md lists undecided
+# UI/workflow questions). Every current PR is necessarily docs/design-only,
+# so `docs_only_exemption` covers ~100% of today's traffic and
+# `full-gate-build` is dormant -- it will not actually execute a cargo
+# command until real Rust code lands.
+#
+# WHY rust_toolchain stays at the empty default (not overridden) despite no
+# rust-toolchain file existing: fabricating a toolchain channel with zero
+# evidence (no Cargo.toml rust-version, no prior CI toolchain pin) would be
+# a guess, not a derived value. Once dioptron lands its first crate, it
+# should add its own rust-toolchain.toml at that point -- the fleet
+# convention this reusable workflow already follows -- rather than this
+# caller pre-committing to an unfounded channel. If Rust code lands BEFORE a
+# toolchain file does, the first non-docs-only PR's full-gate-build will fail
+# fast on toolchain auto-detect finding nothing; that failure is the correct
+# signal to add rust-toolchain.toml, not a reason to set this input today.
+#
+# UNVERIFIED: the entire with: block below is fleet defaults, unconfirmed
+# against any green build (there is no ci.yml, ever, to confirm commands
+# against). Watch full-gate-build actually pass on the first non-docs PR
+# once dioptron has real Rust code -- do not assume these defaults are
+# correct until then.
+#
+# NOTE(required-check rename, for the branch-protection PATCH after adoption):
+# dioptron's current required-status-checks is `["gate-attestation"]` --
+# bare, with no job-id prefix, even though the current job id is `call` (GH's
+# usual context format is "<job_id> / <called-job-name>"). Do not assume the
+# post-adoption context will be "gate / gate-attestation" by pattern-matching
+# the other repos in this wave -- read it off the first real adoption PR's
+# check-run list, then PATCH branch protection to match exactly.
 name: Gate Attestation
 
 on:
@@ -7,49 +51,25 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+# WHY no concurrency: block here: hybrid-gate.yml itself already declares
+# `concurrency: group: ${{ github.workflow }}-${{ github.ref }}` and its own
+# comment states callers must NOT also set a concurrency group with that
+# same key, or the shared group self-cancels.
 
 jobs:
-  gate-attestation:
-    name: gate-attestation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Verify Gate-Passed trailer
-        env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          if [ "$PR_AUTHOR" = "dependabot[bot]" ] || [ "$PR_AUTHOR" = "release-please[bot]" ]; then
-            echo "Trusted bot PR author: $PR_AUTHOR"
-            echo "Gate attestation auto-passed for trusted bot PR."
-            exit 0
-          fi
-
-          commits=$(git log --format="%H" "origin/${{ github.base_ref }}..HEAD")
-          if [ -z "$commits" ]; then
-            echo "ERROR: No commits found in PR"
-            exit 1
-          fi
-
-          found=false
-          for sha in $commits; do
-            body=$(git log -1 --format="%b" "$sha")
-            if echo "$body" | grep -q "^Gate-Passed:"; then
-              version=$(echo "$body" | grep "^Gate-Passed:" | head -1)
-              echo "Found gate attestation: $version"
-              found=true
-              break
-            fi
-          done
-
-          if [ "$found" = false ]; then
-            echo "ERROR: No Gate-Passed trailer found in any PR commit."
-            echo "Run the local gate and commit with the trailer."
-            exit 1
-          fi
+  gate:
+    uses: forkwright/.github/.github/workflows/hybrid-gate.yml@main
+    with:
+      fmt_cmd: "cargo fmt --all -- --check"
+      check_cmd: "cargo check --workspace --all-targets"
+      clippy_cmd: "cargo clippy --workspace --all-targets -- -D warnings"
+      nextest_cmd: "cargo nextest run --workspace"
+      doctest_cmd: ""
+      system_packages: ""
+      # WHY false: no Cargo.toml exists at all yet, so no git dependency of
+      # any kind (fleet or otherwise) is possible to verify or deny.
+      needs_fleet_repo_token: false
+      ai_attribution_check: true
+      docs_only_exemption: true
+      rust_cache_key: "gate-attestation"
+    secrets: inherit
