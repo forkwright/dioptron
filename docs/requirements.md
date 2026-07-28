@@ -48,7 +48,7 @@ R4.10 Fork sessions: create a branch of an existing session with shared history 
 ## R5. Privacy & anti-tracking requirements
 
 R5.1 Per-session fingerprint identity synthesized from real browser population distributions.
-R5.2 No cross-session fingerprint linkability unless the operator explicitly enables it per origin.
+R5.2 Cross-session fingerprint linkability against a stated web-origin adversary is bounded by a measured, versioned anonymity-set floor, not asserted as an unconditional guarantee; adversary, baseline, and measurement contract in `docs/design/fingerprint-unlinkability.md`. Operator can widen per-origin linkage explicitly, but no default configuration narrows the measured anonymity set below the current floor.
 R5.3 Cookie isolation per session with operator-visible cookie jar.
 R5.4 Referrer policy enforcement: strict-origin by default, configurable per rule.
 R5.5 Canvas/WebGL/AudioContext fingerprint defense via noise injection calibrated to real distributions.
