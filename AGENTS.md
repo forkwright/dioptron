@@ -19,7 +19,7 @@ Dioptron is in the design phase. No Rust crates have landed. All work is documen
 - [docs/design/tenancy.md](docs/design/tenancy.md) - peer tenant model
 - [docs/design/decisions.md](docs/design/decisions.md) - resolved technical decisions (D17.*)
 - [docs/requirements.md](docs/requirements.md) - R1-R12 requirements
-- [planning/open-questions.md](planning/open-questions.md) - deferred decisions (Q2-Q5)
+- [docs/design/vision.md](docs/design/vision.md) - pointer to kanon-canonical vision + open questions (Q2-Q5)
 
 ## Dispatch rules
 
