@@ -20,7 +20,7 @@
 # point either.
 
 [pipeline]
-stages = ["ci-config-lint", "readme-lint"]
+stages = ["ci-config-lint", "readme-lint", "doc-refs-check"]
 
 [stages.ci-config-lint]
 cmd = "kanon lint --workflow .kanon-ci.toml"
@@ -28,6 +28,10 @@ timeout_secs = 30
 
 [stages.readme-lint]
 cmd = "kanon lint --writing README.md"
+timeout_secs = 30
+
+[stages.doc-refs-check]
+cmd = "ci/check-doc-refs.py ."
 timeout_secs = 30
 
 # The 03f-e independent verifier replays the main pipeline's claims

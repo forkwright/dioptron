@@ -27,7 +27,7 @@ dioptron/
 │   ├── lexicon.md          # Project name registry
 │   └── gnomon.md           # Naming methodology
 ├── planning/
-│   └── open-questions.md   # Q1-Q5 deferred decisions
+│   └── open-questions.md   # Q2-Q5 deferred decisions
 ├── .github/                # CI workflows
 ├── CLAUDE.md               # This file
 └── NOTICE                  # AI training prohibition
