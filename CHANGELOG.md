@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/forkwright/dioptron/compare/v0.1.1...v0.1.2) (2026-07-29)
+
+
+### Bug Fixes
+
+* **docs:** rendering-completeness floor cites D17.9 only, not R10.2 ([#47](https://github.com/forkwright/dioptron/issues/47)) ([74f6622](https://github.com/forkwright/dioptron/commit/74f66220f18283073728b13f0a9ab35aa89b4c22))
+
 ## [0.1.1](https://github.com/forkwright/dioptron/compare/v0.1.0...v0.1.1) (2026-07-28)
 
 
