@@ -1,8 +1,8 @@
 # Rendering completeness floor
 
-This note defines the measurement contract for R10.2 and D17.9. It does not
-change the pure-Rust rendering lock in D17.4: Chromium, headless browsers, and
-C++ rendering fallbacks are not accepted runtime paths. Origins that fail native
+This note defines the measurement contract for D17.9. It does not change the
+pure-Rust rendering lock in D17.4: Chromium, headless browsers, and C++
+rendering fallbacks are not accepted runtime paths. Origins that fail native
 rendering are native parity gaps.
 
 ## Corpus
@@ -82,7 +82,7 @@ corpus unless the origin itself is no longer in operator scope.
 
 ## V1 acceptance
 
-Dioptron claims the R10.2/D17.9 v1 rendering floor only when:
+Dioptron claims the D17.9 v1 rendering floor only when:
 
 - The current top-1000 corpus has a complete evidence run.
 - No blocker breakage remains outside documented known gaps.

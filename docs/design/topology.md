@@ -10,7 +10,7 @@ Core web engine capabilities. These layers do the hard work of interacting with 
 Network stack: HTTP/1.1, HTTP/2, HTTP/3 (QUIC). TLS with configurable fingerprinting (JA3/JA4 rotation). Cookie jar per session. Proxy support (SOCKS5, HTTP CONNECT, Tor). DNS resolution with DoH/DoT. Connection pooling with session isolation.
 
 ### D3. Render
-HTML/CSS rendering engine. The rendering completeness floor (R10.2): operator's top-1000 sites without breakage. Layout, painting, compositing. Image decode. Font shaping. Accessibility tree.
+HTML/CSS rendering engine. The rendering completeness floor (D17.9): operator's top-1000 sites without breakage. Layout, painting, compositing. Image decode. Font shaping. Accessibility tree.
 
 ### D4. Script
 JavaScript execution in sandboxed engine. DOM interaction for dynamic content extraction. Web API surface sufficient for modern sites. Resource budgets per execution context.
