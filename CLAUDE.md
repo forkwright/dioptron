@@ -22,12 +22,11 @@ dioptron/
 │   │   ├── topology.md         # 3-band, 11-layer + tenancy plane
 │   │   ├── tenancy.md          # Multi-tenant peer user model
 │   │   ├── training-data.md    # Behavioral emission taxonomy
-│   │   └── decisions.md        # Resolved technical decisions (D17.*)
+│   │   ├── decisions.md        # Resolved technical decisions (D17.*)
+│   │   └── vision.md           # Pointer to kanon-canonical vision + open questions
 │   ├── requirements.md     # R1-R12 requirements
 │   ├── lexicon.md          # Project name registry
 │   └── gnomon.md           # Naming methodology
-├── planning/
-│   └── open-questions.md   # Q2-Q5 deferred decisions
 ├── .github/                # CI workflows
 ├── CLAUDE.md               # This file
 └── NOTICE                  # AI training prohibition

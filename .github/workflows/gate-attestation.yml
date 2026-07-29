@@ -16,40 +16,42 @@ jobs:
     name: gate-attestation
     runs-on: ubuntu-latest
     steps:
+      # WHY the branch shape is matched as well as the author: release-please
+      # running under GITHUB_TOKEN opens its PR as github-actions[bot], and as the
+      # PAT owner once a PAT is wired -- the author varies, the branch pattern does
+      # not. Release-PR content is generated version bumps; its verification is the
+      # release-please job itself, not a local gate.
+      - name: Pass trusted automation PRs
+        if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' || github.event.pull_request.user.login == 'release-please[bot]' || startsWith(github.head_ref, 'release-please--branches--') }}
+        env:
+          # WHY: head_ref is contributor-controlled text; env indirection keeps it
+          # out of shell interpolation.
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: echo "Gate attestation waived for trusted automation PR (author ${PR_AUTHOR}, branch ${PR_HEAD_REF})."
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        if: ${{ github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.user.login != 'release-please[bot]' && !startsWith(github.head_ref, 'release-please--branches--') }}
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Verify Gate-Passed trailer
+        if: ${{ github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.user.login != 'release-please[bot]' && !startsWith(github.head_ref, 'release-please--branches--') }}
+        # WHY bound to the PR tip rather than any commit in the range: the range
+        # form passes when any ancestor carries a trailer, so an unstamped tip can
+        # ride an earlier commit's attestation and the tree that actually merges
+        # is never gated.
         env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          # WHY: head.sha is server-populated and content-addressed; it reaches the
+          # script via env rather than shell interpolation.
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ "$PR_AUTHOR" = "dependabot[bot]" ] || [ "$PR_AUTHOR" = "release-please[bot]" ]; then
-            echo "Trusted bot PR author: $PR_AUTHOR"
-            echo "Gate attestation auto-passed for trusted bot PR."
-            exit 0
-          fi
-
-          commits=$(git log --format="%H" "origin/${{ github.base_ref }}..HEAD")
-          if [ -z "$commits" ]; then
-            echo "ERROR: No commits found in PR"
-            exit 1
-          fi
-
-          found=false
-          for sha in $commits; do
-            body=$(git log -1 --format="%b" "$sha")
-            if echo "$body" | grep -q "^Gate-Passed:"; then
-              version=$(echo "$body" | grep "^Gate-Passed:" | head -1)
-              echo "Found gate attestation: $version"
-              found=true
-              break
-            fi
-          done
-
-          if [ "$found" = false ]; then
-            echo "ERROR: No Gate-Passed trailer found in any PR commit."
+          body=$(git log -1 --format="%b" "$PR_HEAD_SHA")
+          if echo "$body" | grep -q "^Gate-Passed:"; then
+            echo "Found gate attestation on PR tip: $(echo "$body" | grep '^Gate-Passed:' | head -1)"
+          else
+            echo "ERROR: PR tip carries no Gate-Passed trailer (an ancestor's trailer does not count)."
             echo "Run the local gate and commit with the trailer."
             exit 1
           fi
