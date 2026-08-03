@@ -7,7 +7,13 @@
 # Dioptron is docs-only today (design phase) - no Cargo.toml, no crates,
 # nothing for the default Rust gate to exercise. The docs-phase gate
 # keeps the forge post-receive hook honest with real checks that do not
-# require a Rust workspace: lint this CI file and the public README.
+# require a Rust workspace.
+#
+# WHY the specification corpus is in the gate and not just README: at this
+# phase the corpus is the product, so leaving it outside CI is equivalent to
+# leaving product source outside CI. The validated set is derived from
+# docs/MANIFEST.toml rather than listed here, so a new canonical document
+# cannot be added without also being validated -- see ci/check-doc-manifest.py.
 #
 # When dioptron grows the `crates/` workspace described in
 # docs/design/topology.md, replace `pipeline.stages` with the full Rust
@@ -20,7 +26,13 @@
 # point either.
 
 [pipeline]
-stages = ["ci-config-lint", "readme-lint", "doc-refs-check"]
+stages = [
+    "ci-config-lint",
+    "readme-lint",
+    "doc-refs-check",
+    "docs-manifest-check",
+    "docs-manifest-selftest",
+]
 
 [stages.ci-config-lint]
 cmd = "kanon lint --workflow .kanon-ci.toml"
@@ -33,6 +45,20 @@ timeout_secs = 30
 [stages.doc-refs-check]
 cmd = "ci/check-doc-refs.py ."
 timeout_secs = 30
+
+[stages.docs-manifest-check]
+cmd = "ci/check-doc-manifest.py ."
+timeout_secs = 60
+
+# WHY this stage is separate from docs-manifest-check: the check above passes
+# on the corpus as it stands, and a stage that has never failed is not evidence
+# that it can. This one replays negative fixtures -- an unlisted document, a
+# deleted document, an invalid change to a canonical requirement -- and fails
+# if any of them is not caught. It is the docs-phase counterpart to the
+# independent verifier disabled below.
+[stages.docs-manifest-selftest]
+cmd = "ci/check-doc-manifest.py --self-test"
+timeout_secs = 60
 
 # The 03f-e independent verifier replays the main pipeline's claims
 # (clippy warning count, lint violation count, build success) in a
