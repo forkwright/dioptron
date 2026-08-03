@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/forkwright/dioptron/compare/v0.1.2...v0.1.3) (2026-08-03)
+
+
+### Bug Fixes
+
+* **ci:** derive the docs-phase validation set from the document manifest ([#49](https://github.com/forkwright/dioptron/issues/49)) ([bd2e0bc](https://github.com/forkwright/dioptron/commit/bd2e0bce92a8012b6d5e135e1de6a5fa527d5981)), closes [#41](https://github.com/forkwright/dioptron/issues/41)
+
 ## [0.1.2](https://github.com/forkwright/dioptron/compare/v0.1.1...v0.1.2) (2026-07-29)
 
 
