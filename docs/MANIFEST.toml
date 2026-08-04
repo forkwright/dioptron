@@ -26,6 +26,12 @@ evergreen = true
 description = "Resolved D17.x technical decisions: sandboxing, tiers, identity sourcing, updates, vault."
 
 [[doc]]
+path = "docs/design/fingerprint-unlinkability.md"
+type = "authored"
+evergreen = true
+description = "Measurement contract for the R5.2/D17.13 fingerprint anonymity-set floor against a web-origin adversary."
+
+[[doc]]
 path = "docs/design/ingest-rules-taxonomy.md"
 type = "authored"
 evergreen = true

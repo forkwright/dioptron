@@ -9,6 +9,8 @@ Default nous query posture: tier 1 first, tier 2 if insufficient confidence, tie
 ## D17.3 Identity layer distribution sourcing
 Initial corpus from public fingerprint datasets (Mozilla, EFF Panopticlick, academic crawls). Refresh via akroasis passive observation when integrated. Distributions versioned and auditable. Unknown fingerprint properties: rules engine surfaces request, falls back to synthesized plausible value with audit flag.
 
+Anonymity-set floor (R5.2/D17.13) is recomputed against this corpus at every refresh, not set independently — see `docs/design/fingerprint-unlinkability.md`.
+
 ## D17.4 Pure-Rust rendering lock
 Dioptron does not use Chromium, headless browsers, or C++ rendering fallbacks. Native Rust rendering through the D3 render band is the only supported render path. Origins that fail to render are tracked as native-rendering coverage gaps and native parity work, not fallback candidates.
 
@@ -37,3 +39,8 @@ Proton Pass bridge is interim (acknowledged sovereignty leak). Clean-room vault 
 
 ## D17.12 Multi-operator scope
 Single-operator. Family members get own instances. Peer-tenant model is for human + agents, not multiple humans.
+
+## D17.13 Fingerprint unlinkability floor
+v1: cross-session joint fingerprint (egress, DNS, TLS, HTTP, JavaScript surface, fonts, locale, clock, storage) for a stated web-origin adversary sits in a measured anonymity set no smaller than the current floor, recomputed against the D17.3 distribution corpus at every refresh. Measurable, testable, adversary-scoped.
+
+Measurement contract: `docs/design/fingerprint-unlinkability.md`.
