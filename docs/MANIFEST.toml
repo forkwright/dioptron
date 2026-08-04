@@ -1,0 +1,62 @@
+# docs/MANIFEST.toml - documentation inventory for this repo.
+
+[[doc]]
+path = "docs/lexicon.md"
+type = "decision-record"
+evergreen = true
+description = "Dioptron name selection and gnomon-layer test; crate names TBD pending topology."
+decided = "2026-04-13"
+
+[[doc]]
+path = "docs/requirements.md"
+type = "authored"
+evergreen = true
+description = "The five co-equal purpose statements (R1) and functional requirements for the runtime."
+
+[[doc]]
+path = "docs/design/vision.md"
+type = "authored"
+evergreen = true
+description = "Dual-audience vision: operator sovereign browser and nous-agent web capability surface."
+
+[[doc]]
+path = "docs/design/decisions.md"
+type = "authored"
+evergreen = true
+description = "Resolved D17.x technical decisions: sandboxing, tiers, identity sourcing, updates, vault."
+
+[[doc]]
+path = "docs/design/ingest-rules-taxonomy.md"
+type = "authored"
+evergreen = true
+description = "D7 ingest / D8 rules taxonomy: evidence boundary, classifiers, provenance, Rust-native plan."
+
+[[doc]]
+path = "docs/design/rendering-completeness.md"
+type = "authored"
+evergreen = true
+description = "Measurement contract for the R10.2/D17.9 rendering-completeness floor over the origin corpus."
+
+[[doc]]
+path = "docs/design/script-band-evaluation.md"
+type = "authored"
+evergreen = true
+description = "D4 script-band evaluation contract and v1 scope decision for sandboxed JS execution."
+
+[[doc]]
+path = "docs/design/tenancy.md"
+type = "authored"
+evergreen = true
+description = "Tenant classes (operator, agent, sub-agent) and capability-equality model."
+
+[[doc]]
+path = "docs/design/topology.md"
+type = "authored"
+evergreen = true
+description = "Three-band, eleven-layer engine/operations architecture plus cross-cutting tenancy plane."
+
+[[doc]]
+path = "docs/design/training-data.md"
+type = "authored"
+evergreen = true
+description = "Behavioral emission taxonomy for training-data generation from operator and agent events."
