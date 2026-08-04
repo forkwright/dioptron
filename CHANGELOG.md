@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/forkwright/dioptron/compare/v0.1.3...v0.1.4) (2026-08-04)
+
+
+### Bug Fixes
+
+* **docs:** replace the absolute fingerprint unlinkability claim with a measurable threat model ([#51](https://github.com/forkwright/dioptron/issues/51)) ([d77aa59](https://github.com/forkwright/dioptron/commit/d77aa599b4e35cce964ea96d66cbb1941c12642f))
+
 ## [0.1.3](https://github.com/forkwright/dioptron/compare/v0.1.2...v0.1.3) (2026-08-03)
 
 
