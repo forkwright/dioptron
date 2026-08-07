@@ -41,7 +41,7 @@ description = "D7 ingest / D8 rules taxonomy: evidence boundary, classifiers, pr
 path = "docs/design/rendering-completeness.md"
 type = "authored"
 evergreen = true
-description = "Measurement contract for the R10.2/D17.9 rendering-completeness floor over the origin corpus."
+description = "Measurement contract for the D17.9 rendering-completeness floor over the origin corpus."
 
 [[doc]]
 path = "docs/design/script-band-evaluation.md"
