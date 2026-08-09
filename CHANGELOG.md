@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/forkwright/dioptron/compare/v0.1.4...v0.1.5) (2026-08-09)
+
+
+### Bug Fixes
+
+* **docs:** drop identity-fluff wording and a stale MANIFEST.toml citation ([#56](https://github.com/forkwright/dioptron/issues/56)) ([d5fc4bd](https://github.com/forkwright/dioptron/commit/d5fc4bd3357c9587b0f702fd0402fe327a881322))
+
 ## [0.1.4](https://github.com/forkwright/dioptron/compare/v0.1.3...v0.1.4) (2026-08-04)
 
 
