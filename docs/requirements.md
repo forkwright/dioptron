@@ -4,7 +4,7 @@
 
 The runtime is a local web substrate that:
 1. Transforms the open web into structured, persistent, queryable knowledge inside the operator's cognitive ecosystem.
-2. Presents a zero-friction, unlinkable, sovereign interface to origins.
+2. Presents a zero-friction, unlinkable, operator-controlled interface to origins.
 3. Provides full active observation, defense, and offense capability over the operator's web surface.
 4. Generates the largest single source of behavioral training data for the forkwright stack.
 5. Hosts human and agent tenants as peer users on a single canonical capability surface.
@@ -106,7 +106,7 @@ R9.9 Inter-tenant handoff protocol: explicit ownership transfer, recorded as aud
 
 ## R10. Competitive frame
 
-R10.1 Exceed every LLM-native browser on their best dimensions AND on dimensions they architecturally cannot match (sovereignty, custom rules, full audit, active ops, agent co-tenancy, knowledge graph integration).
+R10.1 Exceed every LLM-native browser on their best dimensions AND on dimensions they architecturally cannot match (local-only operation, custom rules, full audit, active ops, agent co-tenancy, knowledge graph integration).
 
 R10.2 Operator-facing graphical interface is a competitive daily-driver browser by absolute standards. Theatron-or-equivalent desktop surface is v1. Ratatui secondary.
 
@@ -114,14 +114,14 @@ R10.3 Agent-facing interface exceeds every existing agent browser tooling on cap
 
 ## R11. Non-functional requirements
 
-- Sovereignty: runs entirely locally, no cloud dependency beyond operator's LLM API key
+- Local-only operation: runs entirely locally, no cloud dependency beyond operator's LLM API key
 - Encryption at rest for all stored artifacts and knowledge
 - Sandboxing: every untrusted operation in landlock+seccomp
 - Zero unsafe in application code (vendor exceptions permitted with audit)
 - Deterministic rendering where possible
 - Capability security model (not ambient authority)
 - Offline operation: full functionality with cached content when network unavailable
-- Update sovereignty: operator controls when and what updates are applied
+- Update authority: operator controls when and what updates are applied
 
 ## R12. Explicit non-requirements
 

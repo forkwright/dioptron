@@ -2,7 +2,7 @@
 
 > δίοπτρον (dia + opt + ron): the instrument through which one sees
 
-Sovereign web runtime with agent co-tenancy. Local web substrate where operator and AI agents are peer users of the same capability surface  -  browsing, ingesting, querying, and acting on the web through a unified programmatic interface.
+Local web runtime with agent co-tenancy. Operator and AI agents are peer users of the same capability surface  -  browsing, ingesting, querying, and acting on the web through a unified programmatic interface.
 
 ## Architecture
 
