@@ -2,7 +2,7 @@
 
 > δίοπτρον (dia + opt + ron): the instrument through which one sees
 
-Sovereign web runtime with agent co-tenancy. Local web substrate where operator and AI agents are peer users of the same capability surface  -  browsing, ingesting, querying, and acting on the web through a unified programmatic interface.
+Local web runtime with agent co-tenancy. Operator and AI agents are peer users of the same capability surface  -  browsing, ingesting, querying, and acting on the web through a unified programmatic interface.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ Operator and agents are peer users. Every capability exists once, consumed throu
 - [docs/design/topology.md](docs/design/topology.md)  -  Layer topology
 - [docs/design/tenancy.md](docs/design/tenancy.md)  -  Multi-tenant model
 - [docs/design/decisions.md](docs/design/decisions.md)  -  Resolved technical decisions
-- [docs/design/rendering-completeness.md](docs/design/rendering-completeness.md)  -  R10.2/D17.9 evidence floor
+- [docs/design/rendering-completeness.md](docs/design/rendering-completeness.md)  -  D17.9 evidence floor
 - [docs/design/script-band-evaluation.md](docs/design/script-band-evaluation.md)  -  D4 evaluation and v1 scope
 - [docs/design/ingest-rules-taxonomy.md](docs/design/ingest-rules-taxonomy.md)  -  D7/D8 taxonomy and implementation plan
 - [docs/design/training-data.md](docs/design/training-data.md)  -  Behavioral emission taxonomy

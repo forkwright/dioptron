@@ -4,7 +4,7 @@
 
 The runtime is a local web substrate that:
 1. Transforms the open web into structured, persistent, queryable knowledge inside the operator's cognitive ecosystem.
-2. Presents a zero-friction, unlinkable, sovereign interface to origins.
+2. Presents a zero-friction, unlinkable, operator-controlled interface to origins.
 3. Provides full active observation, defense, and offense capability over the operator's web surface.
 4. Generates the largest single source of behavioral training data for the forkwright stack.
 5. Hosts human and agent tenants as peer users on a single canonical capability surface.
@@ -48,7 +48,7 @@ R4.10 Fork sessions: create a branch of an existing session with shared history 
 ## R5. Privacy & anti-tracking requirements
 
 R5.1 Per-session fingerprint identity synthesized from real browser population distributions.
-R5.2 No cross-session fingerprint linkability unless the operator explicitly enables it per origin.
+R5.2 Cross-session fingerprint linkability against a stated web-origin adversary is bounded by a measured, versioned anonymity-set floor, not asserted as an unconditional guarantee; adversary, baseline, and measurement contract in `docs/design/fingerprint-unlinkability.md`. Operator can widen per-origin linkage explicitly, but no default configuration narrows the measured anonymity set below the current floor.
 R5.3 Cookie isolation per session with operator-visible cookie jar.
 R5.4 Referrer policy enforcement: strict-origin by default, configurable per rule.
 R5.5 Canvas/WebGL/AudioContext fingerprint defense via noise injection calibrated to real distributions.
@@ -106,7 +106,7 @@ R9.9 Inter-tenant handoff protocol: explicit ownership transfer, recorded as aud
 
 ## R10. Competitive frame
 
-R10.1 Exceed every LLM-native browser on their best dimensions AND on dimensions they architecturally cannot match (sovereignty, custom rules, full audit, active ops, agent co-tenancy, knowledge graph integration).
+R10.1 Exceed every LLM-native browser on their best dimensions AND on dimensions they architecturally cannot match (local-only operation, custom rules, full audit, active ops, agent co-tenancy, knowledge graph integration).
 
 R10.2 Operator-facing graphical interface is a competitive daily-driver browser by absolute standards. Theatron-or-equivalent desktop surface is v1. Ratatui secondary.
 
@@ -114,14 +114,14 @@ R10.3 Agent-facing interface exceeds every existing agent browser tooling on cap
 
 ## R11. Non-functional requirements
 
-- Sovereignty: runs entirely locally, no cloud dependency beyond operator's LLM API key
+- Local-only operation: runs entirely locally, no cloud dependency beyond operator's LLM API key
 - Encryption at rest for all stored artifacts and knowledge
 - Sandboxing: every untrusted operation in landlock+seccomp
 - Zero unsafe in application code (vendor exceptions permitted with audit)
 - Deterministic rendering where possible
 - Capability security model (not ambient authority)
 - Offline operation: full functionality with cached content when network unavailable
-- Update sovereignty: operator controls when and what updates are applied
+- Update authority: operator controls when and what updates are applied
 
 ## R12. Explicit non-requirements
 
