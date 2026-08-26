@@ -1,69 +1,73 @@
 # Contributing to Dioptron
 
-Dioptron uses the self-hosted kanon forge as the authoritative PR surface. GitHub stays bidirectionally mirrored for external discoverability, but PRs live on the forge.
+GitHub is Dioptron's authoritative repository, pull-request, review, CI, and
+merge surface.
 
-## Push target
+## Push a branch
 
-```
-origin = http://kanon.lan/forkwright/dioptron.git   (authoritative)
-github = git@github.com:forkwright/dioptron.git     (mirror)
-```
-
-Push to `origin`. The forge post-receive hook runs CI (`.kanon-ci.toml`) and mirrors merge commits to GitHub via the pr-sync worker.
-
-## Opening a PR
-
-Two paths, same effect:
-
-**Stoa UI.** Open `http://kanon.lan/prs/forkwright/dioptron`, click "New PR", pick base + head refs, review diff, submit.
-
-**CLI.**
+Create a feature branch using one of the prefixes in `CLAUDE.md`, then push it
+to the GitHub `origin`:
 
 ```bash
-git push origin HEAD:refs/heads/<branch>
-kanon pr open <branch> --title "..." --body "..."
+git push -u origin HEAD
 ```
 
-`kanon pr open` prints the new PR number and its forge URL.
+Do not push changes directly to `main`.
 
-## Review
+## Open a pull request
 
-Comments and approvals land through stoa. The merge button activates when all gates report green:
-
-- CI status `Pass` (every stage in `.kanon-ci.toml` exits zero, or the stage's `fail_on` predicate reports success).
-- Independent verifier `Ok` (03f-e reproduces the headline claims from a fresh checkout of the head sha).
-- The terminal `gate / gate` context passes. A genuine `Gate-Passed: kanon
-  <version>` trailer from the full Kanon gate takes the fast path; an untrailed
-  PR runs the repository's public deterministic checks on GitHub instead.
-
-## Merging
+Open a GitHub pull request against `main`, either in the GitHub UI or with the
+CLI:
 
 ```bash
-kanon pr merge <pr_number>
+gh pr create --base main --title "..." --body-file path/to/pr-body.md
 ```
 
-or the forge merge button. Default strategy is `squash`; `--strategy ff` or `--strategy rebase` are supported. The merge commit carries the `Gate-Passed` trailer.
+Keep the pull request body explicit about the affected contract and the
+verification that applies to the exact head SHA.
 
-Do not merge via GitHub. The GitHub mirror is read-only from the contributor's perspective: any merge performed there races the forge pr-sync worker and drops the trailer.
+## Review and CI
 
-## External contributors
+GitHub Actions is the active pull-request verifier. Every pull request must
+receive a successful terminal `gate / gate` result for its exact head before it
+merges. A genuine `Gate-Passed: kanon <version>` trailer takes the hybrid
+workflow's fast path on a pull request; an untrailed pull request runs the
+repository's public deterministic checks. A push to `main` always runs those
+checks against the landed tree.
 
-The GitHub mirror at `github.com/forkwright/dioptron` works as before. A PR opened on GitHub is ingested into the forge via the 05d bidirectional sync and then follows the normal review path above. The merge still happens on the forge; GitHub closes when the mirror sync observes the merge commit on `main`.
+Repository authority and required status contexts are operator-controlled. If
+branch protection does not require the exact `gate / gate` context, that is a
+configuration defect; it does not turn an absent, pending, or failed gate into
+merge evidence.
 
-## Fallback
+`.kanon-ci.toml` is a local Kanon recipe. It records additional checks available
+when the private Kanon binary is installed, including workflow and writing
+lint. The current GitHub workflow does not execute those private stages, and no
+forge or independent verifier reports their result as a merge requirement.
+Only an observed run is evidence that the local recipe passed; it does not
+replace the exact-head GitHub result.
 
-If the forge is unreachable, push to `github` and open a GitHub PR. When the forge is back, its pr-sync worker picks up the PR and continues from there. This is an escape hatch, not a preferred path - use it only when kanon.lan is actually down.
+## Merge
+
+Use GitHub's squash merge after review and exact-head CI is complete. A GitHub
+merge does not manufacture a `Gate-Passed` trailer on the landed commit, so do
+not describe the resulting `main` commit as locally attested unless a separate
+receipt proves that claim.
 
 ## CI configuration
 
-`.kanon-ci.toml` at the repo root defines the pipeline. Dioptron is docs-only today, so the pipeline runs docs-phase lint checks that do not require a Cargo workspace. When dioptron grows a crates workspace, expand the pipeline to the full Rust gate (fmt, check, clippy, nextest, kanon lint) - no CI-side changes needed.
+`.github/workflows/gate-attestation.yml` is the active hosted verifier. Dioptron
+is docs-only today, so its command slots run Python syntax, document-reference,
+manifest-completeness, and structural negative checks rather than Cargo jobs.
+The optional doctest slot remains empty until an executable Rust doctest corpus
+exists.
 
-The GitHub hybrid gate is intentionally a projection, not a second full gate.
-It runs Python syntax, document-reference, manifest-completeness, and structural
-self-tests. `kanon lint --workflow`, `kanon lint --writing README.md`, and the
-manifest's derived writing pass remain forge-only because hosted GitHub cannot
-install the private Kanon binary. A public run must not claim those stages ran.
+The private Kanon lints retained in `.kanon-ci.toml` are a supplementary local
+recipe, not a hidden hosted stage. Do not replace missing private tooling with a
+no-op or claim that GitHub ran checks it cannot run.
 
 ## Branch naming and commit format
 
-Per `CLAUDE.md`: `feat/`, `fix/`, `docs/`, `refactor/`, `test/`, `cleanup/`. Commit messages are `category(scope): description`. Squash merges keep main linear.
+Per `CLAUDE.md`, branch names use `feat/`, `fix/`, `docs/`, `refactor/`, `test/`,
+or `cleanup/`. Commit messages use `category(scope): description`. Squash merges
+keep `main` linear.
