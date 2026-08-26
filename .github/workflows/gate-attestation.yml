@@ -1,57 +1,60 @@
+# WHY this caller replaces the trailer-only gate: a PR without access to the
+# private Kanon gate could never mint a Gate-Passed trailer, so the old check
+# was an unsatisfiable policy rather than verification. The fleet hybrid
+# gate keeps a real trailer as a fast-path receipt and runs the commands below
+# for every untrailered change. Its terminal `gate / gate` job reports on every
+# path, including failures in preflight jobs.
 name: Gate Attestation
 
 on:
+  # WHY no base-branch filter: stacked PRs have a feature branch as their base.
+  # Filtering for main would give them no gate run rather than a failed one.
   pull_request:
+  # WHY verify main: a squash or rebase produces a tree that no source-branch
+  # trailer attested. The reusable therefore always runs the real commands on a
+  # default-branch push, independent of trailer state.
+  push:
     branches: [main]
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  gate-attestation:
-    name: gate-attestation
-    runs-on: ubuntu-latest
-    steps:
-      # WHY the branch shape is matched as well as the author: release-please
-      # running under GITHUB_TOKEN opens its PR as github-actions[bot], and as the
-      # PAT owner once a PAT is wired -- the author varies, the branch pattern does
-      # not. Release-PR content is generated version bumps; its verification is the
-      # release-please job itself, not a local gate.
-      - name: Pass trusted automation PRs
-        if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' || github.event.pull_request.user.login == 'release-please[bot]' || startsWith(github.head_ref, 'release-please--branches--') }}
-        env:
-          # WHY: head_ref is contributor-controlled text; env indirection keeps it
-          # out of shell interpolation.
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_HEAD_REF: ${{ github.head_ref }}
-        run: echo "Gate attestation waived for trusted automation PR (author ${PR_AUTHOR}, branch ${PR_HEAD_REF})."
+  gate:
+    # WHY @main: forkwright/.github publishes no tags, so a SHA has no automated
+    # refresh path and silently freezes. This is first-party fleet CI in the same
+    # trust boundary; the reusable owns mechanism and this caller owns only the
+    # repository-specific commands.
+    uses: forkwright/.github/.github/workflows/hybrid-gate.yml@main
+    with:
+      # Dioptron has no toolchain file or Cargo workspace. The reusable currently
+      # installs its Rust runner substrate unconditionally, so name the toolchain
+      # it needs rather than relying on implicit hosted-runner state.
+      rust_toolchain: stable
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        if: ${{ github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.user.login != 'release-please[bot]' && !startsWith(github.head_ref, 'release-please--branches--') }}
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+      # The reusable's four mandatory command slots retain Rust-era names. None
+      # is a no-op here: together they project every deterministic check that can
+      # run without the private Kanon binary from .kanon-ci.toml and its scripts.
+      fmt_cmd: >-
+        python3 -m py_compile
+        ci/check-doc-refs.py
+        ci/check-doc-manifest.py
+      check_cmd: "ci/check-doc-refs.py ."
+      clippy_cmd: "ci/check-doc-manifest.py --structure-only ."
+      nextest_cmd: "ci/check-doc-manifest.py --self-test --structure-only"
 
-      - name: Verify Gate-Passed trailer
-        if: ${{ github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.user.login != 'release-please[bot]' && !startsWith(github.head_ref, 'release-please--branches--') }}
-        # WHY bound to the PR tip rather than any commit in the range: the range
-        # form passes when any ancestor carries a trailer, so an unstamped tip can
-        # ride an earlier commit's attestation and the tree that actually merges
-        # is never gated.
-        env:
-          # WHY: head.sha is server-populated and content-addressed; it reaches the
-          # script via env rather than shell interpolation.
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          body=$(git log -1 --format="%b" "$PR_HEAD_SHA")
-          if echo "$body" | grep -q "^Gate-Passed:"; then
-            echo "Found gate attestation on PR tip: $(echo "$body" | grep '^Gate-Passed:' | head -1)"
-          else
-            echo "ERROR: PR tip carries no Gate-Passed trailer (an ancestor's trailer does not count)."
-            echo "Run the local gate and commit with the trailer."
-            exit 1
-          fi
+      # The private stages are deliberately absent, not silently translated:
+      # `kanon lint --workflow`, `kanon lint --writing README.md`, and the
+      # manifest-derived writing pass remain authoritative in .kanon-ci.toml.
+
+      # WHY false: the specification corpus is the product in this design phase.
+      # A docs-only PR should be able to pass without a private trailer, but it
+      # must still run the lightweight reference and manifest checks above.
+      docs_only_exemption: false
+
+      # WHY empty: there is no Cargo workspace and no executable Rust doctest
+      # corpus. Unlike the four commands above, this optional slot is structurally
+      # inapplicable until implementation crates land.
+      doctest_cmd: ""
+      needs_fleet_repo_token: false
+      rust_cache_key: "dioptron-docs-gate"

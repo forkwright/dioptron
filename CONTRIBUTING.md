@@ -32,7 +32,9 @@ Comments and approvals land through stoa. The merge button activates when all ga
 
 - CI status `Pass` (every stage in `.kanon-ci.toml` exits zero, or the stage's `fail_on` predicate reports success).
 - Independent verifier `Ok` (03f-e reproduces the headline claims from a fresh checkout of the head sha).
-- A `Gate-Passed: kanon <version>` trailer is present on the tip commit of the PR branch, or the merge will append one.
+- The terminal `gate / gate` context passes. A genuine `Gate-Passed: kanon
+  <version>` trailer from the full Kanon gate takes the fast path; an untrailed
+  PR runs the repository's public deterministic checks on GitHub instead.
 
 ## Merging
 
@@ -55,6 +57,12 @@ If the forge is unreachable, push to `github` and open a GitHub PR. When the for
 ## CI configuration
 
 `.kanon-ci.toml` at the repo root defines the pipeline. Dioptron is docs-only today, so the pipeline runs docs-phase lint checks that do not require a Cargo workspace. When dioptron grows a crates workspace, expand the pipeline to the full Rust gate (fmt, check, clippy, nextest, kanon lint) - no CI-side changes needed.
+
+The GitHub hybrid gate is intentionally a projection, not a second full gate.
+It runs Python syntax, document-reference, manifest-completeness, and structural
+self-tests. `kanon lint --workflow`, `kanon lint --writing README.md`, and the
+manifest's derived writing pass remain forge-only because hosted GitHub cannot
+install the private Kanon binary. A public run must not claim those stages ran.
 
 ## Branch naming and commit format
 

@@ -1,0 +1,35 @@
+# WHY a caller rather than local merge logic: auto-merge is a fleet safety
+# mechanism. Keeping its polling, check-name normalization, and refusal paths in
+# forkwright/.github prevents a permissive local copy from drifting unnoticed.
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+
+# WHY these permissions appear in both places: a reusable workflow can narrow
+# the caller's token but cannot widen it. This caller makes the maximum authority
+# visible in the repository whose dependency PR may be merged.
+permissions:
+  contents: write
+  pull-requests: write
+
+# WHY caller-level concurrency is correct here: unlike hybrid-gate, the
+# auto-merge reusable declares no group of its own. A superseded Dependabot head
+# must cancel its older waiter so two runs cannot race to merge different tips.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    # WHY @main: forkwright/.github publishes no tags, so a pinned SHA cannot be
+    # maintained by Dependabot and would freeze while claiming reviewability.
+    # No `secrets: inherit` is needed: the reusable consumes only GITHUB_TOKEN,
+    # which GitHub provides to a called workflow without forwarding repo secrets.
+    #
+    # WARNING: the current reusable also requires Cargo security-check groups.
+    # Dioptron has no Cargo workspace, so those contexts cannot honestly exist;
+    # this adoption therefore fails closed on Dependabot PRs until the reusable
+    # accepts a repository-specific check contract. It must not be "fixed" with
+    # vacuous cargo jobs in this repository.
+    uses: forkwright/.github/.github/workflows/dependabot-auto-merge.yml@main
