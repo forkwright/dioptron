@@ -13,6 +13,13 @@ decisions. The boundary between them is evidence: D7 emits typed evidence
 records; D8 consumes evidence records when rules need page, tenant, grant,
 budget, or drift context.
 
+For anonymous static acquisition, the source capture is the verbatim Zetesis
+evidence envelope defined by the
+[static acquisition boundary](zetesis-acquisition-boundary.md). D7 owns
+Dioptron classification and knowledge semantics after that handoff. It does not
+repeat target validation, redirects, HTTP, decompression, static extraction, or
+envelope construction.
+
 D7 and D8 must not share ad hoc strings. Classifiers emit typed labels with
 confidence, provenance, source artifact references, and contradiction links.
 Rules consume those typed labels through schema-versioned facts.
@@ -111,4 +118,3 @@ Phase 3 connects v1 intelligence:
   `docs/design/training-data.md`.
 - Keep raw corpus output and scored output separately consumable for akroasis
   hand-off.
-

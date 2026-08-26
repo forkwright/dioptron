@@ -6,6 +6,7 @@ source_docs = [
   "README.md",
   "CLAUDE.md",
   "docs/design/topology.md",
+  "docs/design/zetesis-acquisition-boundary.md",
   "<canonical-state-doc>/STATE.md",
 ]
 
@@ -34,3 +35,12 @@ role = "TBD implementation crates for the 11-layer topology; no Rust code has la
 name = "canonical capability trait"
 kind = "rust-trait"
 path = "docs/design/tenancy.md"
+
+[[interfaces]]
+name = "Zetesis static acquisition"
+kind = "cross-repository-adapter"
+path = "docs/design/zetesis-acquisition-boundary.md"
+producer = "forkwright/zetesis"
+consumer = "forkwright/dioptron"
+status = "design-only"
+contract = "Dioptron authorizes and persists invocation context. Zetesis owns validated targets, redirect proof, bounded HTTP and decompression, static extraction, and the evidence envelope."

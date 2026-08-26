@@ -5,12 +5,17 @@ generated = false
 source_docs = [
   "<canonical-state-doc>/STATE.md",
   "README.md",
+  "docs/design/zetesis-acquisition-boundary.md",
 ]
 
 [state]
 summary = "Dioptron is a scaffolded pre-implementation repo with spec v0.5 complete and the render-band foundation decided."
 current_phase = "Pre-implementation specification."
-updated = "2026-04-26"
+updated = "2026-08-26"
+
+[[recent]]
+date = "2026-08-26"
+item = "Static acquisition ownership boundary assigned the consumer-neutral mechanism and evidence envelope to Zetesis while Dioptron retains invocation authority and product context."
 
 [[recent]]
 date = "2026-04-26"
@@ -29,3 +34,8 @@ status = "Likely first slice is D2 net, D5 store, and D12 tenancy core."
 name = "script band"
 issue = 0
 status = "JavaScript engine evaluation remains v1 scope for dynamic extraction; see docs/design/script-band-evaluation.md."
+
+[[open_threads]]
+name = "Zetesis static acquisition adapter"
+issue = 66
+status = "Design boundary recorded. Dependency and adapter work wait for a merged immutable Zetesis SHA registered or derived through Kanon and a real consumer compatibility test."

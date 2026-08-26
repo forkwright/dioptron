@@ -5,6 +5,7 @@ generated = false
 source_docs = [
   "CLAUDE.md",
   "docs/design/decisions.md",
+  "docs/design/zetesis-acquisition-boundary.md",
   "<canonical-state-doc>/STATE.md",
 ]
 
@@ -55,7 +56,7 @@ consequences = "Origins that fail native rendering become native parity gaps. Th
 id = "D-render-evidence-floor"
 title = "Measure rendering completeness with an operator corpus"
 status = "accepted"
-context = "R10.2 and D17.9 require a measurable operator top-1000 rendering floor before render-band code can claim completeness."
+context = "D17.9 requires a measurable operator top-1000 rendering floor before render-band code can claim completeness."
 decision = "Use a versioned operator top-1000 origin corpus, deterministic capture protocol, severity taxonomy, immutable evidence bundles, and native-gap tracking as the render-completeness contract."
 consequences = "Render-band implementation cannot redefine success after the fact; failing origins remain native parity work under the pure-Rust lock."
 
@@ -74,3 +75,11 @@ status = "accepted"
 context = "Active web operations can cross security boundaries."
 decision = "Use landlock+seccomp per verb and a dedicated network namespace for exploit-runner behavior."
 consequences = "Operational capability remains explicit and auditable."
+
+[[decision]]
+id = "D-zetesis-static-acquisition-boundary"
+title = "Consume one Zetesis static acquisition mechanism"
+status = "accepted"
+context = "A Dioptron-local static fetch stack would duplicate target, redirect, HTTP, decompression, extraction, and evidence behavior."
+decision = "Keep invocation authority and product context in Dioptron while Zetesis owns the consumer-neutral static acquisition state machine and evidence envelope."
+consequences = "The design-only adapter reserves authority and records intent before invocation, stores the Zetesis envelope verbatim with Dioptron identities, and settles or releases afterward. Dependency work waits for a Kanon-derived immutable producer SHA and a real compatibility test."
