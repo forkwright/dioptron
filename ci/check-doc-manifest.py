@@ -28,8 +28,9 @@ Three checks, in order:
 
 `--structure-only` runs the missing/unlisted checks without invoking Kanon. It
 is the honest public-CI projection: GitHub can execute this repository's Python
-mechanism, but it cannot install the private Kanon binary. The default remains
-the full forge gate, including writing validation.
+mechanism, but it cannot install the private Kanon binary. The default is this
+manifest check's full local/private Kanon recipe, including writing validation;
+it is not a current forge or independent merge-verifier result.
 
 WHY the canonical scope is `docs/**/*.md` and not the whole tree: the
 repository root carries operational documents (README, CHANGELOG, CONTRIBUTING,
