@@ -30,7 +30,7 @@ jobs:
           PR_HEAD_REF: ${{ github.head_ref }}
         run: echo "Gate attestation waived for trusted automation PR (author ${PR_AUTHOR}, branch ${PR_HEAD_REF})."
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.user.login != 'release-please[bot]' && !startsWith(github.head_ref, 'release-please--branches--') }}
         with:
           fetch-depth: 0
