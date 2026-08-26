@@ -7,7 +7,9 @@ Three bands across eleven layers, plus a cross-cutting tenancy plane.
 Core web engine capabilities. These layers do the hard work of interacting with the web.
 
 ### D2. Net
-Network stack: HTTP/1.1, HTTP/2, HTTP/3 (QUIC). TLS with configurable fingerprinting (JA3/JA4 rotation). Cookie jar per session. Proxy support (SOCKS5, HTTP CONNECT, Tor). DNS resolution with DoH/DoT. Connection pooling with session isolation.
+Network stack for sessionful browser traffic: HTTP/1.1, HTTP/2, HTTP/3 (QUIC). TLS with configurable fingerprinting (JA3/JA4 rotation). Cookie jar per session. Proxy support (SOCKS5, HTTP CONNECT, Tor). DNS resolution with DoH/DoT. Connection pooling with session isolation.
+
+Consumer-neutral anonymous static acquisition crosses the [Zetesis acquisition boundary](zetesis-acquisition-boundary.md). It does not add another fetch stack to D2.
 
 ### D3. Render
 HTML/CSS rendering engine. The rendering completeness floor (D17.9): operator's top-1000 sites without breakage. Layout, painting, compositing. Image decode. Font shaping. Accessibility tree.
@@ -26,7 +28,9 @@ Per-session fingerprint identity synthesized from real browser populations. Canv
 Knowledge acquisition and interaction management. These layers transform raw web interaction into structured knowledge.
 
 ### D7. Ingest
-Content extraction pipeline: HTML → structured data, PDF → text, feeds → items. Contradiction detection against existing knowledge. Tier assignment and promotion. Metadata extraction (author, date, source, provenance).
+Knowledge-ingest pipeline: immutable captures → structured candidates → tiered knowledge. D7 owns Dioptron classifiers, contradiction detection, tier assignment, promotion, and provenance links.
+
+For anonymous static acquisition, D7 consumes the [verbatim Zetesis evidence envelope](zetesis-acquisition-boundary.md). Zetesis retains static extraction ownership.
 
 ### D8. Rules
 Policy engine governing all runtime behavior. Rules scope to tenant class, individual tenant, delegation depth. Rule facts include tenant identity, grant evaluations, delegation events, proposals, handoffs. Standing query budgets. Operations band authorization.

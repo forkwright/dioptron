@@ -21,6 +21,9 @@ Operator and agents are peer users. Every capability exists once, consumed throu
 
 ## Documentation
 
+This is a curated, non-exhaustive start-here list. The
+[documentation manifest](docs/MANIFEST.toml) is the exhaustive inventory.
+
 - [docs/requirements.md](docs/requirements.md)  -  R1-R12 requirements
 - [docs/design/topology.md](docs/design/topology.md)  -  Layer topology
 - [docs/design/tenancy.md](docs/design/tenancy.md)  -  Multi-tenant model

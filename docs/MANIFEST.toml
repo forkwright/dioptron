@@ -66,3 +66,9 @@ path = "docs/design/training-data.md"
 type = "authored"
 evergreen = true
 description = "Behavioral emission taxonomy for training-data generation from operator and agent events."
+
+[[doc]]
+path = "docs/design/zetesis-acquisition-boundary.md"
+type = "authored"
+evergreen = true
+description = "Ownership and adapter protocol between Dioptron context and Zetesis static acquisition."
