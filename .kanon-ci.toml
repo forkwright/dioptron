@@ -15,6 +15,15 @@
 # docs/MANIFEST.toml rather than listed here, so a new canonical document
 # cannot be added without also being validated -- see ci/check-doc-manifest.py.
 #
+# GitHub's public hybrid gate projects the mechanically public subset through
+# `py_compile`, `check-doc-refs.py`, and `check-doc-manifest.py --structure-only`:
+# Python syntax, identifier references, manifest completeness,
+# and negative structural fixtures. The two Kanon-owned judgments below
+# (`ci-config-lint`, `readme-lint`) and the manifest writing pass remain
+# forge-only because the Kanon binary is private. Do not replace them with hosted
+# no-ops or a second writing linter; the full forge pipeline remains the authority
+# for those claims.
+#
 # When dioptron grows the `crates/` workspace described in
 # docs/design/topology.md, replace `pipeline.stages` with the full Rust
 # gate:

@@ -26,7 +26,9 @@ Dioptron is in the design phase. No Rust crates have landed. All work is documen
 - Branch naming: `feat/`, `fix/`, `docs/`, `refactor/`, `cleanup/`
 - Squash merge to `main`. No develop branch.
 - Commit format: `category(scope): description`  -  scopes are `docs`, `infra`, `design`, or a crate name once crates land.
-- Every PR needs a `Gate-Passed:` trailer from a passing local gate run.
+- Every PR needs the terminal `gate / gate` context. A genuine `Gate-Passed:`
+  trailer from the full Kanon gate is a fast-path receipt; an untrailed PR runs
+  the public deterministic projection in GitHub Actions instead.
 
 ## What agents do here
 
