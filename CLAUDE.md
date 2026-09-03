@@ -16,19 +16,14 @@ Local web substrate that transforms the open web into structured, persistent, qu
 dioptron/
 ├── crates/                 # Rust workspace crates
 │   └── (TBD  -  see design/topology.md for the 11-layer + tenancy plane)
-├── standards/              # Coding standards (kanon-synced)
 ├── docs/
-│   ├── design/             # Architecture and design docs
-│   │   ├── topology.md         # 3-band, 11-layer + tenancy plane
-│   │   ├── tenancy.md          # Multi-tenant peer user model
-│   │   ├── training-data.md    # Behavioral emission taxonomy
-│   │   ├── decisions.md        # Resolved technical decisions (D17.*)
-│   │   └── vision.md           # Pointer to kanon-canonical vision + open questions
+│   ├── MANIFEST.toml       # canonical doc inventory (SSOT for docs/**/*.md; CI-enforced by ci/check-doc-manifest.py)
+│   ├── design/             # architecture and design docs -- see MANIFEST.toml for the current set
 │   ├── requirements.md     # R1-R12 requirements
-│   ├── lexicon.md          # Project name registry
-│   └── gnomon.md           # Naming methodology
+│   └── lexicon.md          # project name registry
+├── ci/                     # doc-corpus validation scripts (check-doc-manifest.py, check-doc-refs.py)
 ├── .github/                # CI workflows
-├── CLAUDE.md               # This file
+├── CLAUDE.md               # this file
 └── NOTICE                  # AI training prohibition
 ```
 
