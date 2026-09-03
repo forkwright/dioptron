@@ -4,6 +4,8 @@
 Usage:
     ci/check-doc-manifest.py [repo-root]
     ci/check-doc-manifest.py --self-test
+    ci/check-doc-manifest.py --structure-only [repo-root]
+    ci/check-doc-manifest.py --self-test --structure-only
 
 Dioptron's product at this phase is its specification corpus, so the corpus is
 what CI has to hold. The manifest already inventories every canonical document;
@@ -23,6 +25,12 @@ Three checks, in order:
 3. Writing — `kanon lint --writing` passes for every manifest document.
    Validation itself belongs to kanon lint; this script only decides what gets
    validated.
+
+`--structure-only` runs the missing/unlisted checks without invoking Kanon. It
+is the honest public-CI projection: GitHub can execute this repository's Python
+mechanism, but it cannot install the private Kanon binary. The default is this
+manifest check's full local/private Kanon recipe, including writing validation;
+it is not a current forge or independent merge-verifier result.
 
 WHY the canonical scope is `docs/**/*.md` and not the whole tree: the
 repository root carries operational documents (README, CHANGELOG, CONTRIBUTING,
@@ -101,8 +109,8 @@ def writing_findings(root: Path, rel: str) -> str | None:
     return (result.stdout + result.stderr).strip()
 
 
-def check(root: Path) -> list[str]:
-    """Run all three checks against `root` and return the problems found."""
+def check(root: Path, *, include_writing: bool = True) -> list[str]:
+    """Run manifest checks against `root` and return the problems found."""
     declared = load_manifest(root)
     problems: list[str] = []
 
@@ -120,17 +128,18 @@ def check(root: Path) -> list[str]:
                 f"{MANIFEST_REL}, so no CI stage validates it"
             )
 
-    for rel in declared:
-        if not (root / rel).is_file():
-            continue  # already reported as missing
-        findings = writing_findings(root, rel)
-        if findings:
-            problems.append(f"writing: {rel} fails `kanon lint --writing`\n{findings}")
+    if include_writing:
+        for rel in declared:
+            if not (root / rel).is_file():
+                continue  # already reported as missing
+            findings = writing_findings(root, rel)
+            if findings:
+                problems.append(f"writing: {rel} fails `kanon lint --writing`\n{findings}")
 
     return problems
 
 
-def _self_test() -> int:
+def _self_test(*, include_writing: bool = True) -> int:
     """Prove each check fires on a corpus that violates it.
 
     WHY this exists: every manifest document passes today, so a green run is
@@ -149,7 +158,7 @@ def _self_test() -> int:
         baseline = workdir / "baseline"
         shutil.copytree(root, baseline, ignore=shutil.ignore_patterns(".git"))
 
-        if check(baseline):
+        if check(baseline, include_writing=include_writing):
             print("self-test: baseline corpus does not pass; fix that first", file=sys.stderr)
             return 1
         cases.append(("baseline passes", True))
@@ -158,26 +167,38 @@ def _self_test() -> int:
         unlisted = workdir / "unlisted"
         shutil.copytree(baseline, unlisted)
         (unlisted / "docs" / "design" / "smuggled.md").write_text("# Smuggled\n\nUnlisted.\n")
-        fired = any(p.startswith("unlisted:") for p in check(unlisted))
+        fired = any(
+            p.startswith("unlisted:")
+            for p in check(unlisted, include_writing=include_writing)
+        )
         cases.append(("unlisted document is caught", fired))
 
         # Case 2: a manifest entry whose document has been removed.
         missing = workdir / "missing"
         shutil.copytree(baseline, missing)
         (missing / "docs" / "lexicon.md").unlink()
-        fired = any(p.startswith("missing:") for p in check(missing))
+        fired = any(
+            p.startswith("missing:")
+            for p in check(missing, include_writing=include_writing)
+        )
         cases.append(("missing document is caught", fired))
 
-        # Case 3: an invalid change to a canonical requirement.
-        bad = workdir / "writing"
-        shutil.copytree(baseline, bad)
-        target = bad / "docs" / "requirements.md"
-        target.write_text(
-            target.read_text()
-            + "\nIt is very important to note that this is basically quite simple.\n"
-        )
-        fired = any(p.startswith("writing:") for p in check(bad))
-        cases.append(("invalid requirement change fails CI", fired))
+        if include_writing:
+            # Case 3: an invalid change to a canonical requirement. This is
+            # deliberately absent from --structure-only because Kanon owns the
+            # writing judgment and is unavailable on public hosted runners.
+            bad = workdir / "writing"
+            shutil.copytree(baseline, bad)
+            target = bad / "docs" / "requirements.md"
+            target.write_text(
+                target.read_text()
+                + "\nIt is very important to note that this is basically quite simple.\n"
+            )
+            fired = any(
+                p.startswith("writing:")
+                for p in check(bad, include_writing=include_writing)
+            )
+            cases.append(("invalid requirement change fails CI", fired))
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -187,14 +208,24 @@ def _self_test() -> int:
     if failed:
         print(f"self-test: {len(failed)} case(s) did not fire.", file=sys.stderr)
         return 1
-    print(f"check-doc-manifest self-test: ok ({len(cases)} cases).")
+    mode = "" if include_writing else " structural"
+    print(f"check-doc-manifest{mode} self-test: ok ({len(cases)} cases).")
     return 0
 
 
 def main() -> int:
     argv = sys.argv[1:]
+    structure_only = "--structure-only" in argv
+    argv = [arg for arg in argv if arg != "--structure-only"]
     if argv and argv[0] == "--self-test":
-        return _self_test()
+        if len(argv) != 1:
+            print("error: --self-test accepts no repo root", file=sys.stderr)
+            return 2
+        return _self_test(include_writing=not structure_only)
+
+    if len(argv) > 1:
+        print("error: expected at most one repo root", file=sys.stderr)
+        return 2
 
     root = Path(argv[0]) if argv else Path.cwd()
     if not root.is_dir():
@@ -202,7 +233,7 @@ def main() -> int:
         return 2
 
     try:
-        problems = check(root)
+        problems = check(root, include_writing=not structure_only)
     except (FileNotFoundError, ValueError, tomllib.TOMLDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -214,7 +245,8 @@ def main() -> int:
         return 1
 
     declared = load_manifest(root)
-    print(f"check-doc-manifest: ok ({len(declared)} canonical documents validated).")
+    verb = "accounted for" if structure_only else "validated"
+    print(f"check-doc-manifest: ok ({len(declared)} canonical documents {verb}).")
     return 0
 
 
