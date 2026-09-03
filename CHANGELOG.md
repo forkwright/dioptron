@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/forkwright/dioptron/compare/v0.1.5...v0.1.6) (2026-09-03)
+
+
+### Bug Fixes
+
+* **infra:** adopt honest hybrid gate ([#70](https://github.com/forkwright/dioptron/issues/70)) ([8b3fbe8](https://github.com/forkwright/dioptron/commit/8b3fbe8b7c34355498a26f6870b6ac5235a29738))
+* **infra:** make GitHub the honest authority ([#73](https://github.com/forkwright/dioptron/issues/73)) ([9a9b73a](https://github.com/forkwright/dioptron/commit/9a9b73aa27dac2dc41dd8874e1ab61d77c852f19))
+
 ## [0.1.5](https://github.com/forkwright/dioptron/compare/v0.1.4...v0.1.5) (2026-08-09)
 
 
