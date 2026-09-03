@@ -2,18 +2,29 @@
 # forge-only: false
 # spdx: AGPL-3.0-or-later
 
-# Dioptron CI pipeline.
+# Dioptron local Kanon recipe.
 #
 # Dioptron is docs-only today (design phase) - no Cargo.toml, no crates,
-# nothing for the default Rust gate to exercise. The docs-phase gate
-# keeps the forge post-receive hook honest with real checks that do not
-# require a Rust workspace.
+# nothing for the default Rust gate to exercise. This file records real
+# docs-phase checks for an environment where the private Kanon binary is
+# installed. It is not the current forge pipeline, GitHub workflow, or an
+# independently reported merge verdict.
 #
 # WHY the specification corpus is in the gate and not just README: at this
 # phase the corpus is the product, so leaving it outside CI is equivalent to
 # leaving product source outside CI. The validated set is derived from
 # docs/MANIFEST.toml rather than listed here, so a new canonical document
 # cannot be added without also being validated -- see ci/check-doc-manifest.py.
+#
+# GitHub Actions is the active pull-request verifier. Its public hybrid gate
+# runs the mechanically public subset through
+# `py_compile`, `check-doc-refs.py`, and `check-doc-manifest.py --structure-only`:
+# Python syntax, identifier references, manifest completeness,
+# and negative structural fixtures. The two Kanon-owned judgments below
+# (`ci-config-lint`, `readme-lint`) and the manifest writing pass are available
+# only to a caller that has Kanon installed. GitHub does not claim them, and a
+# green hosted gate is not evidence that they ran. Do not replace them with
+# hosted no-ops or a second writing linter.
 #
 # When dioptron grows the `crates/` workspace described in
 # docs/design/topology.md, replace `pipeline.stages` with the full Rust
@@ -54,18 +65,16 @@ timeout_secs = 60
 # on the corpus as it stands, and a stage that has never failed is not evidence
 # that it can. This one replays negative fixtures -- an unlisted document, a
 # deleted document, an invalid change to a canonical requirement -- and fails
-# if any of them is not caught. It is the docs-phase counterpart to the
-# independent verifier disabled below.
+# if any of them is not caught. It tests the recipe's own structural claims; it
+# is not an independent verifier.
 [stages.docs-manifest-selftest]
 cmd = "ci/check-doc-manifest.py --self-test"
 timeout_secs = 60
 
-# The 03f-e independent verifier replays the main pipeline's claims
-# (clippy warning count, lint violation count, build success) in a
-# fresh worktree. Dioptron still has no Cargo workspace, so the
-# verifier's default build probe (`cargo check --all-features --tests`)
-# fails structurally and flags a false divergence. Disable the verifier
-# here; re-enable when the pipeline grows real Rust stages for it to
-# reproduce.
+# The generic 03f-e verifier assumes a Cargo pipeline and its default build
+# probe (`cargo check --all-features --tests`) cannot reproduce this docs-only
+# recipe. It remains disabled and emits no merge evidence. GitHub's exact-head
+# `gate / gate` result is the current verifier; enable a separate Kanon verifier
+# only after it has real, reproducible claims to check.
 [verifier]
 enabled = false

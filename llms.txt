@@ -26,3 +26,4 @@ Structured LLM corpus:
 - [docs/design/rendering-completeness.md](docs/design/rendering-completeness.md): render-floor evidence contract
 - [docs/design/script-band-evaluation.md](docs/design/script-band-evaluation.md): D4 script-band evaluation contract
 - [docs/design/ingest-rules-taxonomy.md](docs/design/ingest-rules-taxonomy.md): D7/D8 taxonomy and evidence patterns
+- [docs/design/zetesis-acquisition-boundary.md](docs/design/zetesis-acquisition-boundary.md): Dioptron/Zetesis static acquisition ownership and adapter protocol
