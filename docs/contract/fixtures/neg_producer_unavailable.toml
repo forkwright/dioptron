@@ -1,0 +1,17 @@
+[meta]
+name = "neg_producer_unavailable"
+kind = "negative"
+clause = "ProducerUnavailable: The producer could not be contacted."
+
+[request]
+capability = "Capture"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+target = "https://example.com/article"
+producer_fault = "unavailable_not_contacted"
+
+[expected]
+outcome = "ProducerUnavailable"
+final_state = "Released"
+released_reason = "ProducerUnavailable"

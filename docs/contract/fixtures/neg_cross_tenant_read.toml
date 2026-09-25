@@ -1,0 +1,15 @@
+[meta]
+name = "neg_cross_tenant_read"
+kind = "negative"
+clause = "A missing resource and a resource the caller may not see return the identical NotFoundOrDenied response, with identical bytes and identical timing class."
+
+[request]
+capability = "Read"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0c"
+artifact_ref = "01j8k7r3v9zq4n5m6p7s8art0a"
+
+[expected]
+outcome = "NotFoundOrDenied"
+indistinguishable_from_missing = true
+echoes_ref = false

@@ -1,0 +1,18 @@
+[meta]
+name = "neg_narrowing_violation"
+kind = "negative"
+clause = "A child can never be broader than its parent on any axis. There is no widening operation in the contract."
+
+[request]
+capability = "GrantIssue"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+parent_grant = "01j8k7r3v9zq4n5m6p7s8grn0a"
+parent_capabilities = ["Capture", "Read"]
+capabilities = ["Capture", "Read", "GrantRevoke"]
+holder = "01j8k7r3v9zq4n5m6p7s8tnt0c"
+
+[expected]
+outcome = "Denied"
+code = "NarrowingViolation"
+axis = "capabilities"

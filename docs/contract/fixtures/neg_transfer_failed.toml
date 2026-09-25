@@ -1,0 +1,17 @@
+[meta]
+name = "neg_transfer_failed"
+kind = "negative"
+clause = "TransferFailed{class}: The producer began but the transfer failed, with a coarse class."
+
+[request]
+capability = "Capture"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+target = "https://example.com/article"
+producer_fault = "transfer_reset"
+
+[expected]
+outcome = "TransferFailed"
+class = "Reset"
+final_state = "Settled"

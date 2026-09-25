@@ -1,0 +1,17 @@
+[meta]
+name = "neg_idempotency_conflict"
+kind = "negative"
+clause = "Same key, different request digest: IdempotencyConflict. The key is already bound to a different request."
+
+[request]
+capability = "Capture"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+idempotency_key = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+target = "https://example.com/different-article"
+prior_request_digest = "digest-of-example-com-article"
+
+[expected]
+outcome = "IdempotencyConflict"
+dispatched = false
+producer_calls = 0

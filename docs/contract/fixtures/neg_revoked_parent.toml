@@ -1,0 +1,19 @@
+[meta]
+name = "neg_revoked_parent"
+kind = "negative"
+clause = "Chain-walk validity fails at the first revoked link, so a parent's revocation invalidates its whole subtree."
+
+[request]
+capability = "Capture"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0c"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+parent_grant = "01j8k7r3v9zq4n5m6p7s8grn0a"
+parent_revoked_at_sequence = 42
+target = "https://example.com/article"
+
+[expected]
+outcome = "Denied"
+code = "GrantRevoked"
+failing_link = "01j8k7r3v9zq4n5m6p7s8grn0a"
+producer_calls = 0

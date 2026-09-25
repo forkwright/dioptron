@@ -1,0 +1,17 @@
+[meta]
+name = "neg_extraction_failed"
+kind = "negative"
+clause = "ExtractionFailed{class}: The transfer completed but extraction failed, with a coarse class."
+
+[request]
+capability = "Capture"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+target = "https://example.com/malformed"
+producer_fault = "extraction_malformed"
+
+[expected]
+outcome = "ExtractionFailed"
+class = "Malformed"
+final_state = "Settled"

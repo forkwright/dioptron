@@ -1,0 +1,24 @@
+[meta]
+name = "capture_success"
+kind = "positive"
+clause = "The reply carries the artifact reference, the source reference (fingerprint, schema identity, producer revision), the extracted text view, and an explicit truncation flag."
+
+[request]
+capability = "Capture"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+session = "01j8k7r3v9zq4n5m6p7s8ses0a"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+idempotency_key = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+target = "https://example.com/article"
+max_output_bytes = 32768
+max_transfer_bytes = 1048576
+
+[expected]
+outcome = "Success"
+artifact_ref = "01j8k7r3v9zq4n5m6p7s8art0a"
+source_fingerprint = "fp-000000000000000000000000000000000000000000000000000000000000000a"
+source_schema_id = "zetesis.evidence.v1"
+producer_revision = "0000000000000000000000000000000000000000"
+truncated = false
+final_state = "Published"

@@ -1,0 +1,15 @@
+[meta]
+name = "neg_oversized_frame"
+kind = "negative"
+clause = "The length is checked against the current bound before any buffer is allocated."
+
+[request]
+frame = "Request"
+declared_len = 8388608
+pre_auth = false
+negotiated_max = 1048576
+
+[expected]
+outcome = "ProtocolError"
+allocated = false
+connection = "closed"
