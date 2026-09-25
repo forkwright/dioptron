@@ -1,0 +1,17 @@
+[meta]
+name = "neg_forged_identity"
+kind = "negative"
+clause = "Every authentication failure returns the identical AuthFailed: a wrong key, a replayed signature, a peer user id one off from the bound set, a request frame sent before authentication, and an unknown tenant are indistinguishable to the client."
+
+[request]
+frame = "Auth"
+cause = "wrong_key"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+signature = "wrong-key-signature"
+peer_uid = 1000
+bound_uids = [1000]
+
+[expected]
+outcome = "AuthFailed"
+indistinguishable = true
+connection = "closed"

@@ -1,0 +1,17 @@
+[meta]
+name = "session_fork"
+kind = "positive"
+clause = "SessionFork: Branch an existing readable session into a new lineage with provenance."
+
+[request]
+capability = "SessionFork"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+parent_session = "01j8k7r3v9zq4n5m6p7s8ses0a"
+idempotency_key = "d1b2c3d4e5f60718293a4b5c6d7e8f90"
+
+[expected]
+outcome = "Success"
+session = "01j8k7r3v9zq4n5m6p7s8ses0b"
+parent_session = "01j8k7r3v9zq4n5m6p7s8ses0a"
+owner = "01j8k7r3v9zq4n5m6p7s8tnt0b"

@@ -72,3 +72,15 @@ path = "docs/design/zetesis-acquisition-boundary.md"
 type = "authored"
 evergreen = true
 description = "Ownership and adapter protocol between Dioptron context and Zetesis static acquisition."
+
+[[doc]]
+path = "docs/design/capability-contract.md"
+type = "authored"
+evergreen = true
+description = "Versioned Phase 01 capability and wire contract: tenants, capabilities, grants, budgets, invocation lifecycle, outcome taxonomy, and wire protocol."
+
+[[doc]]
+path = "docs/design/custody-store.md"
+type = "authored"
+evergreen = true
+description = "D5 durable-storage decision: fjall STORAGE-TIERS exception, keyspace schema, atomic publish point, failure injection, encryption at rest, rekey, backup, and crypto-shred."
