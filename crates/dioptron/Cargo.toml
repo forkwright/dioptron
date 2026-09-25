@@ -9,3 +9,26 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+snafu.workspace = true
+syntheke = { version = "0.1.6", path = "../syntheke" }
+# WHY these features: net (Unix listener, peer credentials), rt (spawn,
+# JoinSet, blocking pool), io-util (read_exact, write_all), time (frame,
+# handshake, idle, and deadline timers), sync (semaphore, watch, mpsc),
+# macros (select!), signal (graceful shutdown).
+tokio = { workspace = true, features = ["net", "rt", "io-util", "time", "sync", "macros", "signal"] }
+tracing.workspace = true
+
+[dev-dependencies]
+# WHY zeroize on the dev side: tests hold signing keys to sign handshake
+# transcripts; the daemon itself only verifies.
+ed25519-dalek = { workspace = true, features = ["fast", "zeroize"] }
+# WHY rkyv (dev only): tests serialize bodies that are valid archives but
+# break a contract invariant, which the contract encoder refuses to build.
+rkyv.workspace = true
+tempfile.workspace = true
+# WHY test-util: paused tokio time makes every timeout test deterministic.
+tokio = { workspace = true, features = ["test-util", "rt", "macros"] }
