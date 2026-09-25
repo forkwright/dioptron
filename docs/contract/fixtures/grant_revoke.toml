@@ -1,0 +1,17 @@
+[meta]
+name = "grant_revoke"
+kind = "positive"
+clause = "A revocation record names the revoked grant, the audit sequence at which it took effect, and the wall time of the effect."
+
+[request]
+capability = "GrantRevoke"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0a"
+target_grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+idempotency_key = "11b2c3d4e5f60718293a4b5c6d7e8f90"
+
+[expected]
+outcome = "Success"
+revoked_grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+effect_sequence = 42
+descendants_invalidated = true

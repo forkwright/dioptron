@@ -1,0 +1,24 @@
+[meta]
+name = "grant_issue_valid"
+kind = "positive"
+clause = "A child grant is valid only if it attenuates its parent on every axis at once."
+
+[request]
+capability = "GrantIssue"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+parent_grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+parent_capabilities = ["Capture", "Read", "GrantIssue"]
+idempotency_key = "71b2c3d4e5f60718293a4b5c6d7e8f90"
+holder = "01j8k7r3v9zq4n5m6p7s8tnt0c"
+capabilities = ["Capture", "Read"]
+target_scope = ["example.com"]
+ceiling_fetches = 10
+ceiling_bytes_transferred = 524288
+expires_at = "2026-10-25T00:00:00Z"
+
+[expected]
+outcome = "Success"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0c"
+parent_grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+narrowed = true
