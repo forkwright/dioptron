@@ -80,7 +80,6 @@ mod tests {
                 limit: 50,
             }),
             RequestBody::GrantIssue(GrantIssueRequest {
-                parent_grant: GrantId::from_bytes(id(3)),
                 holder: TenantId::from_bytes(id(4)),
                 capabilities: vec![Capability::Capture, Capability::Read],
                 session_scope: SessionScope::Sessions(vec![SessionId::from_bytes(id(1))]),
@@ -252,6 +251,7 @@ mod tests {
             for mode in Mode::ALL.iter().copied() {
                 let request = Request {
                     request_id: u64::try_from(index)?,
+                    grant: GrantId::from_bytes(id(3)),
                     idempotency_key: Some(key(0x5a)?),
                     mode,
                     deadline_ms: 30_000,
@@ -297,7 +297,21 @@ mod tests {
         assert_eq!(round_trip(&cancel, DEFAULT_MAX_BODY)?, cancel, "cancel");
         for failure in every_failure() {
             let fault = Fault { failure };
-            assert_eq!(round_trip(&fault, DEFAULT_MAX_BODY)?, fault, "{failure:?}");
+            if matches!(failure, Failure::ProtocolError | Failure::AuthFailed) {
+                assert_eq!(round_trip(&fault, DEFAULT_MAX_BODY)?, fault, "{failure:?}");
+                continue;
+            }
+            let encoded = encode(&fault);
+            assert!(
+                matches!(encoded, Err(Error::FaultNotConnectionLevel { kind, .. }) if kind == failure.kind()),
+                "{failure:?} is not sent as a fault, got {encoded:?}"
+            );
+            let raw = rkyv::to_bytes::<rancor::Error>(&fault)?;
+            let decoded = decode::<Fault>(&raw, DEFAULT_MAX_BODY);
+            assert!(
+                matches!(decoded, Err(Error::FaultNotConnectionLevel { .. })),
+                "{failure:?} in a fault frame is refused on receipt, got {decoded:?}"
+            );
         }
         Ok(())
     }
@@ -351,6 +365,7 @@ mod tests {
     fn corrupted_string_bytes_fail_utf8_validation() -> TestResult {
         let request = Request {
             request_id: 1,
+            grant: GrantId::from_bytes(id(3)),
             idempotency_key: None,
             mode: Mode::Execute,
             deadline_ms: 1,
@@ -381,6 +396,7 @@ mod tests {
     fn every_truncation_is_rejected() -> TestResult {
         let request = Request {
             request_id: 1,
+            grant: GrantId::from_bytes(id(3)),
             idempotency_key: Some(key(1)?),
             mode: Mode::Execute,
             deadline_ms: 1,

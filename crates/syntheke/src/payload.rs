@@ -103,10 +103,12 @@ payload! {
 }
 
 payload! {
-    /// `GrantIssue`: issue a child grant attenuating `parent`.
+    /// `GrantIssue`: issue a child grant attenuating the request's
+    /// designated grant ([`crate::Request::grant`]), which is the parent.
+    ///
+    /// WHY no parent field: the parent is the grant the issuer acts under,
+    /// so a second field naming it could only disagree with it.
     pub struct GrantIssueRequest {
-        /// The grant being attenuated.
-        pub parent_grant: GrantId,
         /// Tenant that will hold the child.
         pub holder: TenantId,
         /// Conferred capabilities; must be a subset of the parent's.

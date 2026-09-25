@@ -5,10 +5,11 @@ use snafu::{OptionExt as _, ensure};
 
 use crate::codec::Message;
 use crate::error::{
-    BadMagicSnafu, Error, FrameTooLargeSnafu, InvalidVersionRangeSnafu, MaxFrameOutOfRangeSnafu,
-    MissingIdempotencyKeySnafu, NonzeroReservedSnafu, UnknownFlagsSnafu, UnknownFrameKindSnafu,
+    BadMagicSnafu, Error, FaultNotConnectionLevelSnafu, FrameTooLargeSnafu,
+    InvalidVersionRangeSnafu, MaxFrameOutOfRangeSnafu, MissingIdempotencyKeySnafu,
+    NonzeroReservedSnafu, UnknownFlagsSnafu, UnknownFrameKindSnafu,
 };
-use crate::ids::{IdempotencyKey, InvocationId, TenantId};
+use crate::ids::{GrantId, IdempotencyKey, InvocationId, TenantId};
 use crate::outcome::Failure;
 use crate::payload::{RequestBody, ResponseBody};
 use crate::vocab::Mode;
@@ -339,6 +340,7 @@ impl Message for ClientHello {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
+#[non_exhaustive]
 pub enum VersionChoice {
     /// The version both sides will speak.
     Chosen(u16),
@@ -434,11 +436,17 @@ impl Message for Admitted {
 }
 
 /// A capability request. The connection's admitted tenant is the actor;
-/// requests carry no tenant field.
+/// requests carry no tenant field. Each request names the one grant it acts
+/// under, and the daemon authorizes against that grant's chain only
+/// (contract § Grant designation).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Request {
     /// Caller-chosen id, unique among the connection's in-flight requests.
     pub request_id: u64,
+    /// The grant this request acts under, in execute and dry-run mode
+    /// alike. It must be held by the connection's tenant; the daemon never
+    /// falls back to another grant the tenant holds.
+    pub grant: GrantId,
     /// Required on an executed state-changing request; see
     /// [`crate::Capability::is_state_changing`].
     pub idempotency_key: Option<IdempotencyKey>,
@@ -502,12 +510,24 @@ impl Message for Response {
     Clone, Copy, Debug, PartialEq, Eq, Hash, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 pub struct Fault {
-    /// The failure.
+    /// The failure: [`Failure::ProtocolError`] or [`Failure::AuthFailed`].
     pub failure: Failure,
 }
 
 impl Message for Fault {
     const KIND: FrameKind = FrameKind::Fault;
+
+    /// Refuses every failure except the two connection-level kinds; any
+    /// other failure answers one request and travels in a [`Response`].
+    fn check(&self) -> Result<(), Error> {
+        ensure!(
+            matches!(self.failure, Failure::ProtocolError | Failure::AuthFailed),
+            FaultNotConnectionLevelSnafu {
+                kind: self.failure.kind()
+            }
+        );
+        Ok(())
+    }
 }
 
 /// The bytes an authenticating tenant signs:

@@ -2,6 +2,7 @@
 
 use snafu::Snafu;
 
+use crate::outcome::OutcomeKind;
 use crate::vocab::Capability;
 use crate::wire::FrameKind;
 
@@ -177,6 +178,16 @@ pub enum Error {
     MissingIdempotencyKey {
         /// Capability of the rejected request.
         capability: Capability,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A fault frame carried a failure that is not connection-level.
+    #[snafu(display("a fault frame carries only ProtocolError or AuthFailed, got {kind}"))]
+    FaultNotConnectionLevel {
+        /// Kind of the rejected failure.
+        kind: OutcomeKind,
         /// Where the error was raised.
         #[snafu(implicit)]
         location: snafu::Location,
