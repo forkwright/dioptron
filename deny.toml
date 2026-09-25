@@ -13,19 +13,13 @@ all-features = true
 ignore = []
 
 [licenses]
-# WHY each entry:
-# - LicenseRef-PolyForm-Noncommercial-1.0.0: this workspace's own crates.
-# - MIT, Apache-2.0: the dual license of most crates.io crates, including
-#   the planned tokio, snafu, fjall, rkyv, and RustCrypto dependencies.
-# - BSD-3-Clause: ed25519-dalek, curve25519-dalek, and subtle.
-# - Unicode-3.0: unicode-ident, a transitive dependency of proc-macro crates.
-# Add a license only together with the dependency that needs it.
+# WHY only the workspace's own license: the skeleton crates have no
+# external dependencies, and cargo-deny warns on allowances no crate uses.
+# Each implementation slice adds the licenses its new dependencies need
+# (for example MIT, Apache-2.0, BSD-3-Clause, Unicode-3.0), with the
+# dependency that needs them.
 allow = [
-    "Apache-2.0",
-    "BSD-3-Clause",
     "LicenseRef-PolyForm-Noncommercial-1.0.0",
-    "MIT",
-    "Unicode-3.0",
 ]
 confidence-threshold = 0.8
 

@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false # PROJECT: security hardening — never expose token to steps
+          persist-credentials: false
       # WHY this action and not a fixed channel: it reads rust-toolchain.toml,
       # so the extractor resolves the workspace with the pinned toolchain.
       - name: Set up Rust toolchain

@@ -6,7 +6,6 @@
 //! protocol constants. It is the only crate a consumer links, and it takes
 //! no dependency on other fleet crates.
 //!
-//! The contract it implements is specified in `docs/design/` and frozen by
-//! the Phase 01 S1 contract work. This crate is a skeleton until that
-//! implementation slice lands.
+//! The contract it implements is specified in `docs/design/`. This crate is
+//! a skeleton until its implementation slice lands.
 #![deny(missing_docs)]

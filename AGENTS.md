@@ -8,7 +8,7 @@ tightens: crates limited to the Phase 01 plan; no new crates without operator de
 
 ## Repo context
 
-Dioptron entered its implementation phase on 2026-09-25 by operator decision (the implementation kickoff decision). The Rust workspace under `crates/` holds the Phase 01 crates: `syntheke` (capability contract), `epitrope` (authorization), `phylake` (custody store), `dioptron` (daemon), and `xenos` (independent test client). The specification corpus stays authoritative: requirements, topology, tenancy model, technical decisions, and the structured `_llm/` corpus.
+Dioptron entered its implementation phase on 2026-09-25 by operator decision. The Rust workspace under `crates/` holds the Phase 01 crates: `syntheke` (capability contract), `epitrope` (authorization), `phylake` (custody store), `dioptron` (daemon), and `xenos` (independent test client). The specification corpus stays authoritative: requirements, topology, tenancy model, technical decisions, and the structured `_llm/` corpus.
 
 ## Entry points
 
