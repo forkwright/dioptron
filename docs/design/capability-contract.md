@@ -511,9 +511,10 @@ any other.
 
 ### Bounds
 
-Before the handshake completes, a frame body is capped at 4 KiB. After version
-negotiation the two sides use the negotiated maximum, which is at most 1 MiB by
-default and never exceeds a hard ceiling of 4 MiB. A partial header or body
+Until the server sends `Admitted`, every frame body in either direction is
+capped at 4 KiB, including `Auth`, `Admitted`, and a handshake `Fault`. After
+`Admitted`, both directions use the negotiated maximum, which is at most 1 MiB
+by default and never exceeds a hard ceiling of 4 MiB. A partial header or body
 times out. A handshake must complete within 5 seconds. A global connection
 semaphore bounds concurrent connections, and each connection bounds its in-flight
 requests. A frame that violates any bound yields a single `ProtocolError` frame
@@ -524,7 +525,11 @@ where possible, and then the connection closes.
 The server reads the peer credential at accept. The client sends a hello naming
 its supported version range, its tenant identifier, and a client nonce. The
 server replies with either a chosen version or the `Incompatible` marker, its own
-nonce, and the negotiated maximum frame size. The client then sends an auth
+nonce, and the negotiated maximum frame size. The chosen version is the highest
+version inside both ranges, so it always lies inside the range the client
+offered, and a client treats a chosen version outside that range as a protocol
+error. An `Incompatible` reply still carries a valid maximum frame size, between
+4 KiB and 4 MiB. The client then sends an auth
 frame carrying an Ed25519 signature over a fixed label, the chosen version, the
 tenant identifier, and both nonces. The server admits the connection only when
 the signature verifies against the tenant's registered key and the peer user id
