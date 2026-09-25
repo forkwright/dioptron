@@ -46,6 +46,24 @@ impl Entropy for ShortEntropy {
     }
 }
 
+/// An entropy source that writes 0x40, 0x41, ... for any length, so a
+/// generated key can be compared with the exact bytes drawn.
+pub(crate) struct PatternEntropy;
+
+/// The 32 bytes [`PatternEntropy`] writes for a key draw, spelled out so
+/// tests compare against a value independent of the generator.
+pub(crate) const PATTERN_32_HEX: &str =
+    "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f";
+
+impl Entropy for PatternEntropy {
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
+        let bytes: Vec<u8> = (0..dest.len())
+            .map(|i| 0x40_u8.wrapping_add(u8::try_from(i).expect("small index")))
+            .collect();
+        Ok(dest.write_copy_of_slice(&bytes))
+    }
+}
+
 /// An entropy source that returns the fixed nonce 0xa0..=0xb7, so a
 /// sealed value can be compared byte for byte with a known answer.
 pub(crate) struct FixedNonce;

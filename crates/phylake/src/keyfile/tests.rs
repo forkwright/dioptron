@@ -4,7 +4,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use super::*;
-use crate::crypto::test_support::FailingEntropy;
+use crate::crypto::test_support::{FailingEntropy, PATTERN_32_HEX, PatternEntropy, unhex};
 
 const FIXTURE_KEY: [u8; ROOT_KEY_LEN] = [0x5a; ROOT_KEY_LEN];
 
@@ -180,6 +180,16 @@ fn generate_reports_io_failure_for_missing_directory() {
     let dir = tempfile::tempdir().expect("tempdir");
     let err = RootKey::generate(&dir.path().join("no/such/root.key")).expect_err("refused");
     assert!(matches!(err, Error::RootKeyIo { .. }), "got {err:?}");
+}
+
+#[test]
+fn generate_writes_exactly_the_drawn_bytes() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("root.key");
+    let generated = RootKey::generate_with(&path, &mut PatternEntropy).expect("generate");
+    let expected = unhex(PATTERN_32_HEX);
+    assert_eq!(generated.expose().as_slice(), expected, "in-memory key");
+    assert_eq!(fs::read(&path).expect("read"), expected, "file contents");
 }
 
 #[test]

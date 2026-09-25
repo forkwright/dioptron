@@ -29,7 +29,7 @@ use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use snafu::{IntoError, ResultExt, ensure};
 use zeroize::ZeroizeOnDrop;
 
-use crate::crypto::{Entropy, OsEntropy, random_array};
+use crate::crypto::{Entropy, OsEntropy, random_secret_array};
 use crate::error::{
     RootKeyExistsSnafu, RootKeyIoSnafu, RootKeyLengthSnafu, RootKeyMissingSnafu,
     RootKeyNotFileSnafu, RootKeyOwnerSnafu, RootKeyPermissionsSnafu, RootKeySymlinkSnafu,
@@ -125,7 +125,9 @@ impl RootKey {
     }
 
     pub(crate) fn generate_with(path: &Path, entropy: &mut impl Entropy) -> Result<Self> {
-        let bytes = SecretBox::new(Box::new(random_array::<ROOT_KEY_LEN>(entropy)?));
+        let drawn = random_secret_array::<ROOT_KEY_LEN>(entropy)?;
+        let bytes =
+            SecretBox::init_with_mut(|key: &mut [u8; ROOT_KEY_LEN]| key.copy_from_slice(&*drawn));
         let mut file = create_key_file(path)?;
         let written = file
             .write_all(bytes.expose_secret())

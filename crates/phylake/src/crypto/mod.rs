@@ -27,7 +27,7 @@ use hkdf::Hkdf;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 use snafu::{OptionExt, ResultExt};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::Result;
 use crate::error::{EntropySnafu, KeyMaterialSnafu, MalformedSnafu};
@@ -252,31 +252,44 @@ impl Entropy for OsEntropy {
     }
 }
 
-/// Draw `N` random bytes from `entropy`.
+/// Draw `N` random bytes of key material from `entropy`, wiped on drop.
 ///
 /// WHY uninitialized: the buffer starts as `MaybeUninit::uninit()`, so no
 /// initializing literal exists for the random bytes to overwrite, and the
 /// random source writes each byte in one pass. The array is then copied out
 /// of the slice the source reports as initialized, with no `unsafe`.
 ///
-/// Callers drawing key material wrap the result in its zeroizing type at once.
+/// Key draws copy the bytes into their heap `SecretBox` by reference while
+/// the returned value is alive, so no unwiped by-value copy of the key is
+/// left behind; see the WARNING residual below for compiler temporaries.
 ///
 /// # Errors
 ///
 /// - [`crate::Error::Entropy`] when the random source fails.
 /// - [`crate::Error::Malformed`] when the source reports a length other than
 ///   `N` as initialized.
-pub(crate) fn random_array<const N: usize>(entropy: &mut impl Entropy) -> Result<[u8; N]> {
+pub(crate) fn random_secret_array<const N: usize>(
+    entropy: &mut impl Entropy,
+) -> Result<Zeroizing<[u8; N]>> {
     let mut scratch = [MaybeUninit::<u8>::uninit(); N];
     let filled = entropy.fill(&mut scratch)?;
     let len = filled.len();
-    let drawn = <[u8; N]>::try_from(&*filled).ok();
+    let drawn = <[u8; N]>::try_from(&*filled).ok().map(Zeroizing::new);
     // NOTE: scrub the scratch copy so a drawn key leaves no stray bytes behind.
     scratch.zeroize();
     drawn.context(MalformedSnafu {
         what: "entropy draw",
         len,
     })
+}
+
+/// Draw `N` random bytes for a public value (nonce, salt) from `entropy`.
+///
+/// # Errors
+///
+/// As [`random_secret_array`].
+pub(crate) fn random_array<const N: usize>(entropy: &mut impl Entropy) -> Result<[u8; N]> {
+    Ok(*random_secret_array(entropy)?)
 }
 
 /// HMAC-SHA256 over the concatenation of `parts` under `key`.
@@ -331,6 +344,12 @@ fn hmac_sha256_verify(key: &[u8], msg: &[u8], tag: &[u8]) -> Result<bool> {
 // exposes the live root key. `hkdf_extract` below wipes the one copy that is
 // returned to this crate (the PRK). Revisit when hmac wipes its padded key
 // block or the store moves key handling into a dedicated process.
+// Entropy draws of key material (`random_secret_array`) wipe the scratch
+// buffer and the returned `Zeroizing` array, and copy into the heap
+// `SecretBox` by reference. The compiler may still place the array produced
+// by `<[u8; N]>::try_from` in a stack temporary before moving it into
+// `Zeroizing::new`; no safe API guarantees that move is elided, so such a
+// temporary would hold the key unwiped under the same bound as above.
 
 /// HKDF-SHA256 extract step.
 fn hkdf_extract(salt: Option<&[u8]>, ikm: &[u8]) -> Hkdf<Sha256> {
