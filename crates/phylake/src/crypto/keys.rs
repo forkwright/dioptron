@@ -58,6 +58,13 @@ impl SubKey {
     pub(crate) fn expose(&self) -> &[u8; KEY_LEN] {
         self.bytes.expose_secret()
     }
+
+    #[cfg(test)]
+    pub(crate) fn from_bytes(bytes: [u8; KEY_LEN]) -> Self {
+        Self {
+            bytes: SecretBox::new(Box::new(bytes)),
+        }
+    }
 }
 
 impl ZeroizeOnDrop for SubKey {}

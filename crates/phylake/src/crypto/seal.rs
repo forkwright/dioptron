@@ -44,10 +44,15 @@ pub const MIN_SEALED_LEN: usize = SEALED_HEADER_LEN + TAG_LEN;
 
 /// Largest plaintext one sealed value may carry.
 ///
-/// WHY: XChaCha20-Poly1305 itself permits 256 GiB per message. The store
-/// holds records and producer envelopes that the contract bounds at a few
-/// MiB (4 MiB wire maximum), so a value this large is a caller bug, surfaced
-/// as an error instead of a multi-gigabyte allocation.
+/// WHY: XChaCha20-Poly1305 itself permits 256 GiB per message, but one
+/// sealed value is encrypted and decrypted as a single in-memory buffer and
+/// stored as a single keyspace value, so its size is a per-operation memory
+/// bound. The wire frame limit (4 MiB hard maximum) does not bound stored
+/// values, because reads are chunked; the transfer budget of a grant does.
+/// 64 MiB is a ceiling well above any record and above the envelope sizes
+/// Phase 01 acquires; a larger envelope needs chunked blob storage, which
+/// must land before any producer may exceed this bound. Until then an
+/// oversized value is refused with an error, not a multi-gigabyte allocation.
 pub const MAX_PLAINTEXT_LEN: usize = 64 * 1024 * 1024;
 
 const AAD_LABEL: &[u8] = b"dioptron/v1";
@@ -261,7 +266,7 @@ mod tests {
     use super::*;
     use crate::Error;
     use crate::crypto::keys::tests::{store_keys, tenant_key};
-    use crate::crypto::test_support::FailingEntropy;
+    use crate::crypto::test_support::{FailingEntropy, FixedNonce, unhex};
 
     const SCHEMA: SchemaVersion = SchemaVersion::new(1);
     const KIND: RecordKind = RecordKind::new(3);
@@ -276,6 +281,56 @@ mod tests {
         let keys = tenant_key(5, 0x3c).derive().expect("derive");
         let sealed = seal(keys.meta(), &ctx(RECORD_KEY), b"fixture plaintext").expect("seal");
         (keys, sealed)
+    }
+
+    // draft-irtf-cfrg-xchacha-03, Appendix A.3.1 (AEAD_XChaCha20_Poly1305).
+    #[test]
+    fn encrypt_matches_xchacha_draft_a31() {
+        let key: [u8; 32] =
+            unhex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
+                .try_into()
+                .expect("32-byte key");
+        let nonce: [u8; NONCE_LEN] = unhex("404142434445464748494a4b4c4d4e4f5051525354555657")
+            .try_into()
+            .expect("24-byte nonce");
+        let aad = unhex("50515253c0c1c2c3c4c5c6c7");
+        let plaintext: &[u8] = b"Ladies and Gentlemen of the class of '99: If I could offer \
+            you only one tip for the future, sunscreen would be it.";
+        let expected = unhex(concat!(
+            "bd6d179d3e83d43b9576579493c0e939572a1700252bfaccbed2902c21396cbb",
+            "731c7f1b0b4aa6440bf3a82f4eda7e39ae64c6708c54c216cb96b72e1213b452",
+            "2f8c9ba40db5d945b11b69b982c1bb9e3f3fac2bc369488f76b2383565d3fff9",
+            "21f9664c97637da9768812f615c68b13b52e",
+            "c0875924c1c7987947deafd8780acf49",
+        ));
+        let key = SubKey::from_bytes(key);
+        let got = encrypt(&key, &nonce, &aad, plaintext).expect("encrypt");
+        assert_eq!(got, expected, "ciphertext and tag match draft A.3.1");
+    }
+
+    // WHY: expected bytes computed outside this crate with a pure-Python
+    // HChaCha20 + ChaCha20-Poly1305 (RFC 8439) checked against RFC 8439
+    // 2.8.2 and draft-irtf-cfrg-xchacha-03 2.2.1 and A.3.1, over the
+    // documented header and additional-data layout. A change to field
+    // order, widths, endianness, or the label fails here.
+    #[test]
+    fn seal_matches_known_answer_for_documented_layout() {
+        let store = store_keys();
+        let sealed = seal_with(
+            store.meta(),
+            &ctx(RECORD_KEY),
+            b"fixture plaintext",
+            &mut FixedNonce,
+        )
+        .expect("seal");
+        let expected = unhex(concat!(
+            "0100",
+            "01000000",
+            "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7",
+            "ea263ed10cb5011ca0b871d745803e48ee",
+            "3877ac1baa09c7bd08d22a6a3f945781",
+        ));
+        assert_eq!(sealed, expected, "sealed bytes match the reference");
     }
 
     #[test]

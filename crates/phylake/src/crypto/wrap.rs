@@ -30,7 +30,7 @@ pub const WRAPPED_KEY_LEN: usize = 2 + 4 + 4 + NONCE_LEN + KEY_LEN + TAG_LEN;
 
 const WRAP_LABEL: &[u8] = b"dioptron/v1/wrap";
 
-const WRAP_AAD_LEN: usize = 16 + 4 + 4 + TENANT_ID_LEN;
+const WRAP_AAD_LEN: usize = WRAP_LABEL.len() + 4 + 4 + TENANT_ID_LEN;
 
 fn wrap_aad(kek_id: KeyId, data_key_id: KeyId, tenant_id: &[u8; TENANT_ID_LEN]) -> Vec<u8> {
     let mut aad = Vec::with_capacity(WRAP_AAD_LEN);
@@ -146,7 +146,7 @@ mod tests {
     use super::*;
     use crate::Error;
     use crate::crypto::keys::tests::{ROOT_BYTES, store_keys, tenant_key};
-    use crate::crypto::test_support::FailingEntropy;
+    use crate::crypto::test_support::{FailingEntropy, FixedNonce};
     use crate::crypto::{StoreSalt, TenantDataKey};
     use crate::keyfile::RootKey;
 
@@ -167,6 +167,31 @@ mod tests {
         assert!(
             !wrapped.windows(KEY_LEN).any(|w| w == key.expose()),
             "plaintext data key absent from wrapped bytes"
+        );
+    }
+
+    // WHY: expected bytes computed outside this crate with the same
+    // independent Python reference as the seal known answer (see
+    // `seal::tests::seal_matches_known_answer_for_documented_layout`), over
+    // the documented wrapped layout and additional data.
+    #[test]
+    fn wrap_matches_known_answer_for_documented_layout() {
+        let store = store_keys();
+        let wrapped = store
+            .wrap_tenant_key_with(&TENANT_A, &tenant_key(42, 0x7e), &mut FixedNonce)
+            .expect("wrap");
+        let expected = concat!(
+            "0100",
+            "01000000",
+            "2a000000",
+            "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7",
+            "5e7c059a7b24e29675bf1ab6a3c6a6f33aee4b2f9fedf1322923ff9017dba74e",
+            "c287d1ff0fc9b9d69ddcc13a50464652",
+        );
+        assert_eq!(
+            crate::crypto::test_support::hex(&wrapped),
+            expected,
+            "wrapped bytes match the reference"
         );
     }
 

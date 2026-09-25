@@ -25,6 +25,7 @@ use hkdf::Hkdf;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 use snafu::{OptionExt, ResultExt};
+use zeroize::Zeroize;
 
 use crate::Result;
 use crate::error::{EntropySnafu, KeyMaterialSnafu};
@@ -269,9 +270,39 @@ fn hmac_sha256_verify(key: &[u8], msg: &[u8], tag: &[u8]) -> Result<bool> {
     Ok(mac.chain_update(msg).verify_slice(tag).is_ok())
 }
 
+// WARNING: accepted residual, stack copies of key material left by the
+// RustCrypto primitives (checked against hmac 0.13.0, hkdf 0.13.0, and
+// digest 0.11.3 sources). The `zeroize` features enabled in the workspace
+// wipe the HMAC and SHA-256 states, the block buffers, the AEAD key, and the
+// ChaCha20 state on drop. They do not reach these locals:
+// - `hmac::block_api::HmacCore::new_from_slice` builds the zero-padded key
+//   block, XORs it with ipad and then opad in place, and returns without
+//   wiping it: 64 bytes equal to `key ⊕ opad` stay in a dead stack slot. The
+//   key is recoverable from it (opad is a constant). This applies to every
+//   HMAC key here: the salt and PRK inside HKDF, the check, index, and
+//   blob-address subkeys.
+// - `HmacCore::finalize_fixed_core` leaves the inner hash `H(key ⊕ ipad ‖
+//   msg)` unwiped; it does not reveal the key.
+// - `hkdf::GenericHkdf::expand_multi_info` leaves each output block T(i) in
+//   its `output` and `prev` locals; for our 32-byte outputs T(1) is the
+//   derived subkey itself.
+// - Poly1305's one-time key (r, s) is not wiped: `chacha20poly1305`'s
+//   `zeroize` feature does not enable `poly1305/zeroize`. That key is per
+//   nonce and reveals nothing about the XChaCha20 key.
+// hmac 0.13 has no feature that wipes these, and no safe API reaches them.
+// The residue lives only in this process's stack until the frames are
+// reused; reading it requires memory access to the daemon, which already
+// exposes the live root key. `hkdf_extract` below wipes the one copy that is
+// returned to this crate (the PRK). Revisit when hmac wipes its padded key
+// block or the store moves key handling into a dedicated process.
+
 /// HKDF-SHA256 extract step.
 fn hkdf_extract(salt: Option<&[u8]>, ikm: &[u8]) -> Hkdf<Sha256> {
-    Hkdf::<Sha256>::new(salt, ikm)
+    // WHY `extract` over `new`: `Hkdf::new` discards the PRK by value without
+    // wiping it; taking it here lets the returned copy be zeroed.
+    let (mut prk, hk) = Hkdf::<Sha256>::extract(salt, ikm);
+    prk.as_mut_slice().zeroize();
+    hk
 }
 
 /// HKDF-SHA256 expand step into `okm`.
@@ -283,6 +314,8 @@ fn hkdf_expand(hk: &Hkdf<Sha256>, info: &[u8], okm: &mut [u8]) -> Result<()> {
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    #![expect(clippy::expect_used, reason = "test helpers must fail loudly")]
+
     use super::Entropy;
     use crate::Result;
     use crate::error::EntropySnafu;
@@ -295,6 +328,36 @@ pub(crate) mod test_support {
         fn fill(&mut self, _dest: &mut [u8]) -> Result<()> {
             Err(EntropySnafu.into_error(getrandom::Error::UNSUPPORTED))
         }
+    }
+
+    /// An entropy source that returns the fixed nonce 0xa0..=0xb7, so a
+    /// sealed value can be compared byte for byte with a known answer.
+    pub(crate) struct FixedNonce;
+
+    impl Entropy for FixedNonce {
+        fn fill(&mut self, dest: &mut [u8]) -> Result<()> {
+            assert_eq!(
+                dest.len(),
+                super::NONCE_LEN,
+                "FixedNonce serves nonces only"
+            );
+            for (byte, value) in dest.iter_mut().zip(0xa0_u8..) {
+                *byte = value;
+            }
+            Ok(())
+        }
+    }
+
+    /// Decode hex, ignoring any non-hex characters between digits.
+    pub(crate) fn unhex(s: &str) -> Vec<u8> {
+        let clean: Vec<u8> = s.bytes().filter(u8::is_ascii_hexdigit).collect();
+        clean
+            .chunks(2)
+            .map(|pair| {
+                let pair = std::str::from_utf8(pair).expect("ascii");
+                u8::from_str_radix(pair, 16).expect("hex")
+            })
+            .collect()
     }
 
     /// Lowercase hex of `bytes`, for asserting key bytes are absent from text.
@@ -314,16 +377,7 @@ mod tests {
     use super::*;
     use crate::Error;
 
-    fn unhex(s: &str) -> Vec<u8> {
-        let clean: Vec<u8> = s.bytes().filter(u8::is_ascii_hexdigit).collect();
-        clean
-            .chunks(2)
-            .map(|pair| {
-                let pair = std::str::from_utf8(pair).expect("ascii");
-                u8::from_str_radix(pair, 16).expect("hex")
-            })
-            .collect()
-    }
+    use test_support::unhex;
 
     // RFC 5869 Appendix A, Test Case 1 (basic SHA-256).
     #[test]
