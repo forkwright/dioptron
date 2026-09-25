@@ -1,7 +1,7 @@
 [meta]
 name = "dry_run"
 kind = "positive"
-clause = "A dry-run invocation ends in the in-memory Planned state and never advances to a persisted state; it calls the producer zero times."
+clause = "Its only product is the returned plan; two identical dry-runs leave the store byte for byte unchanged and call the producer zero times."
 
 [request]
 capability = "Capture"

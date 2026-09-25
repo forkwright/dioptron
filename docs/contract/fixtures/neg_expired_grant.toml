@@ -1,13 +1,14 @@
 [meta]
 name = "neg_expired_grant"
 kind = "negative"
-clause = "A grant is usable at a moment only if every link satisfies not_before <= now and now < expires_at."
+clause = "A grant is usable at a moment only if the whole chain from that grant to its root is usable at that moment."
 
 [request]
 capability = "Capture"
 mode = "Execute"
 tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
 grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+idempotency_key = "21b2c3d4e5f60718293a4b5c6d7e8f90"
 grant_expires_at = "2026-09-24T00:00:00Z"
 clock_now = "2026-09-25T00:00:00Z"
 target = "https://example.com/article"

@@ -16,8 +16,8 @@ max_transfer_bytes = 1048576
 
 [expected]
 outcome = "Success"
-artifact_ref = "01j8k7r3v9zq4n5m6p7s8art0a"
+artifact_ref = "01j8k7r3v9zq4n5m6p7s8art0b"
 source_schema_id = "zetesis.evidence.v1"
 truncated = true
 output_bytes = 4096
-final_state = "Published"
+final_state = "Settled"

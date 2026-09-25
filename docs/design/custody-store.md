@@ -32,8 +32,10 @@ No qualified fleet tier fits the need yet:
   that on.
 
 Raw fjall is therefore the sanctioned substrate under the migration exception.
-The owning crate names pinax and koina as the target tiers in its roadmap and
-tracks removal of the direct fjall dependency in a STORAGE-TIERS exception issue.
+The owning crate names pinax and koina as the target tiers in its roadmap.
+Removal of the direct fjall dependency will be tracked in a STORAGE-TIERS
+exception issue, to be filed when the custody crate lands; its number is not yet
+assigned.
 Retirement condition: the exception is retired when pinax ships a multi-row
 transaction with schema migration and encryption, and koina exposes a public
 content-addressed blob API. Until both exist, this store uses fjall directly and
@@ -93,10 +95,11 @@ the producer call count.
 | after B1 commit | `Released(Abandoned)`; reservation released. | 0 |
 | before B2 commit | `Released(Abandoned)`; producer never dispatched. | 0 |
 | after B2 commit | `UnknownEffect`, settled at reserved fetches; never re-dispatched. | at most 1, never increased by recovery |
-| before B3 commit | Roll forward from B2 rule: `UnknownEffect` if dispatch committed, else released. | unchanged by recovery |
+| before B3 commit | B2 is the last committed state, so the B2 rule applies: `UnknownEffect`, settled at reserved fetches; the uncommitted blob write is discarded with its transaction. | unchanged by recovery |
 | after B3 commit | Roll forward: publish then settle; artifact becomes visible. | unchanged by recovery |
 | before B4 commit | Capture not visible; roll forward to publish and settle. | unchanged by recovery |
 | after B4 commit | Visible; roll forward to settle. | unchanged by recovery |
+| before B5 commit | Visible; roll forward to settle. | unchanged by recovery |
 | after B5 commit | Terminal; no change. | unchanged by recovery |
 | before or after a rekey batch commit | Rekey resumes from the last committed cursor. | not applicable |
 
@@ -153,7 +156,7 @@ the on-disk address never exposes it.
 The store opens locked and fails closed. A missing root key, a root key with
 loose permissions, or a key-check mismatch (the stored key-check value does not
 match the value derived from the presented root key) aborts the open with no
-partial write. There is no degraded read-only or plaintext mode. A raw-disk
+partial write. The store has no degraded read-only or plaintext mode. A raw-disk
 inspection test scans every file under the store directory for any fixture
 plaintext, URL, tenant string, or plain content digest and asserts zero hits, so
 the encryption claim is tested against the bytes, not asserted.
@@ -209,7 +212,10 @@ under that tenant's derived subkeys is unrecoverable, because the plaintext data
 key existed only wrapped. The global `audit_stub` records survive a shred: they
 carry only an id, a capability, an outcome kind, and a time, no tenant content,
 so the fact that calls happened remains auditable while the tenant's content is
-irrecoverable.
+irrecoverable. Because fjall deletes by tombstone, the old wrapped-key bytes can
+persist in journal or segment files until compaction removes them; a shred is
+complete only once the store has compacted past the deletion, and the raw-disk
+inspection test asserts the wrapped key's bytes are absent afterward.
 
 ## Retrieval is a projection
 

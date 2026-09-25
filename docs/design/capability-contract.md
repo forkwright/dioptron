@@ -106,8 +106,8 @@ A child grant is valid only if it attenuates its parent on every axis at once:
 - its depth is less than the chain's maximum depth;
 - the issuer holds `GrantIssue` under the same parent.
 
-A child can never be broader than its parent on any axis. There is no widening
-operation in the contract.
+A child can never be broader than its parent on any axis. The contract defines
+no widening operation.
 
 ### Expiry and validity
 
@@ -146,8 +146,9 @@ ceiling on one dimension never substitutes for another. The dimensions are
 non-exhaustive; version 1 defines wall-time milliseconds, fetch count, bytes
 transferred, and output bytes, with reserved room for token count and an
 operations-band dimension. This satisfies the cost-accounting requirement R9.4:
-every invocation declares cost across time, fetches, and bytes, and a tenant can
-read remaining budget at any time.
+every invocation declares cost across time, fetches, and bytes, the token and
+operations-band dimensions are reserved for the verbs that spend them, and a
+tenant can read remaining budget at any time.
 
 ### Reservation and settlement
 
@@ -177,21 +178,28 @@ settlement or release runs exactly once even across a retry (D17.16).
 | State | Kind | What is true | Recovery action after a crash in this state |
 |---|---|---|---|
 | `Planned` | memory | Authorized, cost computed. Dry-run ends here. Nothing durable, including no audit. | Nothing persisted; nothing to recover. Caller re-issues. |
-| `Denied` | durable, terminal | Authorization failed; an audit record is the only write. | Terminal. No effect, no reservation held. |
+| `Denied` | durable, terminal | Authorization of an `Execute` request failed; an audit record is the only write. A dry-run that would be denied reports the denial in its plan and writes nothing. | Terminal. No effect, no reservation held. |
 | B1 `IntentPersisted` | durable | Reservation, invocation intent, and idempotency index committed in one transaction. Producer not yet contacted. | Release the reservation as `Released(Abandoned)`. The producer was never called. |
 | B2 `Dispatched` | durable | Dispatch recorded before the producer call, so the call is known to have possibly started. | Settle conservatively at the reserved fetch count as `UnknownEffect`; never re-dispatch. The effect may or may not have happened; the contract refuses to repeat a possibly-live external action. |
 | B3 `TransferComplete` | durable | The producer returned; the blob is written but not yet visible. | Roll forward: publish, then settle. The bytes exist; completing publish is safe and idempotent. |
 | B4 `Published` | durable | Atomic publish point: the artifact record, session index, and state committed in one transaction. The capture is now visible. | Roll forward: settle. The effect is durable and visible; only reconciliation remains. |
-| B5 `Settled{outcome}` / `Released{reason}` | durable, terminal | Actual budget settled and remainder released, or the whole reservation released with a reason. | Terminal. |
+| B5 `Settled{outcome}` / `Released{reason}` / `UnknownEffect` | durable, terminal | Actual budget settled and remainder released, the whole reservation released with a reason, or the reserved cost charged because the effect cannot be proven. | Terminal. |
+
+`Settled{outcome}` carries the reply kind the caller observed (`Success`,
+`TransferFailed`, `ExtractionFailed`, and so on). Version 1 `Released` reasons,
+non-exhaustive: `Abandoned` (restart recovery at B1), `Revoked` (revocation
+before any effect), `Cancelled` and `DeadlineExceeded` (the producer reports it
+had not started), and `ProducerUnavailable` (the producer reports it was never
+contacted).
 
 The atomic publish point is B4: before it, a partial capture is invisible and
 recoverable to a released or unknown-effect terminal; at it, the capture becomes
-visible and its budget is reconciled. There is no state in which a caller can
-observe a half-written capture.
+visible and its budget is reconciled. No state lets a caller observe a
+half-written capture.
 
 `UnknownEffect` is a first-class terminal, not an error swallowed silently. It
-records that an external action may have taken effect exactly once and the
-runtime cannot prove which, and it charges the reserved cost rather than
+records that an external action may have taken effect, at most once, and the
+runtime cannot prove whether it did, and it charges the reserved cost rather than
 under-charging. A caller that needs to retry after `UnknownEffect` must issue a
 new idempotency key; the same key replays the `UnknownEffect` outcome and never
 re-dispatches.
@@ -229,6 +237,9 @@ of R2.7 while respecting the drain-only exception:
   and the honest record is that it happened. Reading the resulting artifact
   still requires a live grant; the audit record notes the effect regardless.
 - A completed call is not un-done; its audit record stands.
+- A verb that the rules mark drain-only (R2.7) is not cancelled; it runs to
+  completion and settles normally, and reading its artifact still requires a
+  live grant.
 
 Revocation never fabricates a clean state. A call whose effect has left the
 runtime is recorded as having left, even when the authorizing grant is gone.
@@ -236,8 +247,12 @@ runtime is recorded as having left, even when the authorizing grant is gone.
 ## Outcome and error taxonomy
 
 Outcomes are separated so a caller can tell one failure class from another, and
-so no class leaks information across a tenant boundary. The outcome kinds are
-non-exhaustive; version 1 defines:
+so no class leaks information across a tenant boundary. A reply that is not a
+failure is one of three kinds: `Success` (the capability's result fields),
+`Plan` (the dry-run result: facts, cost, and grant and rule chain), and
+`InProgress` (an idempotent replay of an invocation that has not reached a
+terminal state). The failure outcome kinds are non-exhaustive; version 1
+defines:
 
 | Kind | Class | Meaning |
 |---|---|---|
@@ -251,7 +266,7 @@ non-exhaustive; version 1 defines:
 | `ExtractionFailed{class}` | failed extraction | The transfer completed but extraction failed, with a coarse class. |
 | `DeadlineExceeded` | availability | The deadline elapsed before completion. |
 | `Cancelled` | availability | The call was cancelled. |
-| `UnknownEffect` | availability | An effect may have occurred exactly once and cannot be proven. |
+| `UnknownEffect` | availability | An effect may have occurred, at most once, and cannot be proven either way. |
 | `IdempotencyConflict` | protocol | The idempotency key is bound to a different request. |
 
 The five classes the contract keeps distinct are protocol errors, denials,
@@ -261,13 +276,23 @@ producer that could not be reached from one that reached the origin but failed
 to transfer, and both from a transfer that succeeded but could not be extracted.
 A caller can act differently on each: retry, re-authorize, or report.
 
+Version 1 `Denied` codes, non-exhaustive: `CapabilityNotGranted`,
+`ScopeViolation` (a target outside the grant's target scope),
+`GrantNotYetValid`, `GrantExpired`, `GrantRevoked` (the grant or any link in its
+chain), and `NarrowingViolation` (a child grant that does not attenuate its
+parent). Transfer and extraction classes are coarse and non-exhaustive, for
+example `Reset` or `Timeout` for a transfer and `Malformed` or `Unsupported` for
+extraction; a class never carries origin content or a URL.
+
 ### The non-leak rule
 
 A missing resource and a resource the caller may not see return the identical
-`NotFoundOrDenied` response, with identical bytes and identical timing class, so
-a foreign tenant cannot probe for the existence of another tenant's artifacts,
-sessions, or records. `Denied{code}` is used only where the caller is already
-entitled to know the resource exists. `BudgetExceeded` names a dimension only on
+`NotFoundOrDenied` response, with identical bytes, so a foreign tenant cannot
+use the reply to probe for the existence of another tenant's artifacts,
+sessions, or records. Both cases are answered through the same code path; the
+contract promises byte-identical replies, not constant-time handling, and makes
+no timing claim beyond that. `Denied{code}` is used only where the caller is
+already entitled to know the resource exists. `BudgetExceeded` names a dimension only on
 the caller's own ledgers, never a parent's or another tenant's. No outcome ever
 echoes a target, artifact reference, or URL the caller did not itself supply.
 
@@ -300,18 +325,20 @@ though the acquisition audit record stands.
 
 ## Audit partitions
 
-Audit is read through the `AuditQuery` capability on the common surface, bounded
-by audit scope. The default scopes encode the existing audit-partition access
-decision (D17.7): the operator reads all records, an agent or sub-agent reads
-only its own records and records from sessions it owns, and the rule evaluator's
-view type carries no audit access at all, preventing a side channel during
-evaluation. This contract references D17.7 as the authority for that behavior and
-does not restate or amend it; the wording of D17.7 itself is being revised in a
-parallel change and is not edited here.
+Audit is read through the `AuditQuery` capability, the `audit.query`
+capability of the audit-partition access decision (D17.7). It sits on the common
+surface and is scoped by grant like any other verb; no tenant class has a
+separate audit path. The default grants encode D17.7: the operator's default
+audit scope is `All`, and an agent's or sub-agent's is `OwnAndOwnedSessions`
+(its own records plus records from sessions it owns). The rule evaluator's view
+type carries no audit access, so a rule cannot read audit during evaluation.
+Every audit read is itself audited, recording the grant and scope used. Any
+system-only audit authority would be an explicit non-delegable capability, never
+a tenant-class exception; version 1 defines none.
 
-Every invocation writes its audit record in the same transaction that commits
-its terminal state, so an audit record exists for exactly the calls that reached
-a durable state, and never for a dry-run.
+Every `Execute` invocation that reaches a durable state, including each
+`AuditQuery` read and each `Denied` refusal, writes its audit record in the same
+transaction that commits its terminal state. A dry-run writes none.
 
 ## Wire protocol
 
@@ -325,15 +352,16 @@ Every message is a frame with a 12-byte header: a 4-byte magic (`DPT1`), a
 1-byte kind, a 1-byte flags field, a 2-byte reserved field that must be zero, and
 a 4-byte little-endian length. Unknown flag bits are rejected. The length is
 checked against the current bound before any buffer is allocated, and the body is
-read into an aligned buffer for zero-copy validation. Wire types are
-non-recursive, so validation cannot be driven into unbounded depth.
+read into an aligned buffer. Zero-copy access applies only after the archive
+validator has accepted the whole body; it never replaces validation. Wire types
+are non-recursive, so validation cannot be driven into unbounded depth.
 
 ### Bounds
 
 Before the handshake completes, a frame body is capped at 4 KiB. After version
 negotiation the two sides use the negotiated maximum, which is at most 1 MiB by
 default and never exceeds a hard ceiling of 4 MiB. A partial header or body
-times out. A handshake must complete within a few seconds. A global connection
+times out. A handshake must complete within 5 seconds. A global connection
 semaphore bounds concurrent connections, and each connection bounds its in-flight
 requests. A frame that violates any bound yields a single `ProtocolError` frame
 where possible, and then the connection closes.
@@ -342,7 +370,7 @@ where possible, and then the connection closes.
 
 The server reads the peer credential at accept. The client sends a hello naming
 its supported version range, its tenant identifier, and a client nonce. The
-server replies with either a chosen version or an incompatible marker, its own
+server replies with either a chosen version or the `Incompatible` marker, its own
 nonce, and the negotiated maximum frame size. The client then sends an auth
 frame carrying an Ed25519 signature over a fixed label, the chosen version, the
 tenant identifier, and both nonces. The server admits the connection only when
@@ -442,21 +470,68 @@ scenario per file, each file self-describing.
 
 Every fixture file has three tables:
 
-- `[meta]` with `name` (a unique scenario name), `kind` (`"positive"` or
-  `"negative"`), and `clause` (the acceptance clause this scenario proves,
-  quoted from this document).
-- `[request]` describing the inbound call: its capability or wire frame, its
-  mode, and the fields the scenario exercises. Synthetic data only: `example.com`
-  targets, `192.0.2.0/24` addresses, and fixed lowercase ULIDs.
-- `[expected]` describing the outcome the contract requires: for a positive
-  scenario, the successful reply and its fields; for a negative scenario, the
-  outcome kind and the reason, including the non-leak requirement that a
-  cross-tenant read is indistinguishable from a missing resource.
+- `[meta]` with `name` (the scenario name, equal to the file stem), `kind`
+  (`"positive"` or `"negative"`; negative files are prefixed `neg_`), and
+  `clause` (the acceptance clause this scenario proves, quoted from this
+  document).
+- `[request]` describing the inbound call and the state the scenario starts
+  from. Synthetic data only: `example.com` targets, `192.0.2.0/24` addresses,
+  and fixed lowercase ULIDs.
+- `[expected]` describing what the contract requires: the reply kind and its
+  fields, plus observations a test makes of the store, the producer, and the
+  socket.
 
-A positive fixture asserts a successful path (a capture, a read, a query, a
-session create or fork, a valid narrowing grant, a revoke, or a dry-run). A
-negative fixture asserts a refusal with a specific outcome kind (an incompatible
-version, an oversized frame, a cross-tenant read, an expired grant, a narrowing
-violation, a revoked parent, an idempotency conflict, an unavailable producer, a
-failed transfer, a failed extraction, or a forged identity). A test that finds a
-declared fixture missing fails loudly rather than skipping.
+### Fixture keys
+
+Keys fall into four roles. A key in `[request]` is either a wire field or
+scenario setup; a key in `[expected]` is either a reply field or an
+observation.
+
+- **Wire fields** carried by the request or handshake frame: `capability`,
+  `mode`, `idempotency_key` (hex-encoded bytes), `session` (the session the
+  request acts in), `target`, `max_output_bytes`, `max_transfer_bytes`,
+  `artifact_ref`, `offset`, `len`, `predicate`, `session_scope`,
+  `parent_session`, `parent_grant`, `holder`, `capabilities`, `target_scope`,
+  `ceiling_<dimension>` (for example `ceiling_fetches`,
+  `ceiling_bytes_transferred`), `expires_at`, `target_grant` (the grant a
+  `GrantRevoke` names), `audit_scope`; for handshake frames `frame`,
+  `version_min`, `version_max`, `client_nonce`, `signature`, and `tenant` (the
+  tenant identifier in a `ClientHello`).
+- **Scenario setup**, which the test arranges and the wire never carries:
+  `tenant` in a capability request (the tenant the connection authenticated as;
+  requests carry no tenant field), `grant` (the grant that authorizes the call),
+  `clock_now`, `grant_expires_at`, `parent_capabilities`,
+  `parent_revoked_at_sequence`, `prior_request_digest`, `producer_fault`,
+  `peer_uid`, `bound_uids`, `cause` (one of `wrong_key`, `replayed_signature`,
+  `uid_not_bound`, `pre_auth_request`, `unknown_tenant`), `declared_len`,
+  `pre_auth`, and `negotiated_max`.
+- **Reply fields**: `outcome` (a reply kind or outcome kind from the taxonomy,
+  or `Incompatible` from the handshake), `code`, `class`, `axis`,
+  `artifact_ref`, `source_fingerprint`, `source_schema_id`, `producer_revision`,
+  `text_view`, `truncated`, `output_bytes`, `session`, `owner`,
+  `parent_session`, `grant`, `parent_grant`, `revoked_grant`,
+  `effect_sequence`, `offset`, `len`, `result_refs`, `scope_applied`,
+  `plan_cost_fetches`, and `plan_grant_chain`.
+- **Observations** a test checks outside the reply: `final_state` and
+  `released_reason` (the invocation's durable terminal state), `producer_calls`,
+  `durable_writes`, `dispatched`, `narrowed`, `descendants_invalidated`,
+  `failing_link` (the first revoked link the chain walk reached),
+  `indistinguishable` (the reply bytes equal the reply for the paired case),
+  `echoes_ref`, `authenticated`, `allocated`, `connection`,
+  `envelope_verbatim`, `scoped_to_caller`, `records_outside_scope`, and
+  `read_audited`.
+
+Fixtures share one synthetic cast so the scenarios agree with each other. The
+operator (id ending `tnt0a`) holds root grant `grn0a`. Agent `tnt0b` holds
+`grn0b`, a child of `grn0a`, and owns session `ses0a`. Sub-agent `tnt0c` holds
+`grn0c`, a child of `grn0b` issued by `tnt0b`. Tenant `tnt0f` holds no grant on
+`tnt0b`'s sessions.
+
+A positive fixture asserts a successful path (a capture, a truncated capture, a
+read, a query, an audit query, a session create or fork, a valid narrowing
+grant, a revoke, or a dry-run). A negative fixture asserts a refusal with a
+specific outcome kind (an incompatible version, an oversized frame, a
+cross-tenant read, an expired grant, a narrowing violation, a revoked parent, an
+idempotency conflict, an unavailable producer, a failed transfer, a failed
+extraction, or a forged identity). A test that finds a declared fixture missing
+fails loudly rather than skipping.

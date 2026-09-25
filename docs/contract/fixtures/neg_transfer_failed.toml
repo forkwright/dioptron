@@ -8,6 +8,7 @@ capability = "Capture"
 mode = "Execute"
 tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
 grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+idempotency_key = "41b2c3d4e5f60718293a4b5c6d7e8f90"
 target = "https://example.com/article"
 producer_fault = "transfer_reset"
 

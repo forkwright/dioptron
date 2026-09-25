@@ -24,8 +24,7 @@ serves, not the mechanism it happens to use.
 - **syntheke and the `theke` hub word.** συνθήκη derives from συντίθημι (syn +
   tithemi, "to put together" into an agreement), a distinct word from θήκη
   ("case, receptacle"), the fleet hub word registered in
-  `kanon/crates/basanos/standards/hub-words.toml` for the kanon and aletheia
-  vaults. The meanings do not collide: an agreement is not a receptacle, and no
+  `kanon/crates/basanos/standards/hub-words.toml` for vault components. The meanings do not collide: an agreement is not a receptacle, and no
   fleet component named for storage or a vault carries the sense syntheke does.
   `grep syntheke` returns only this crate. The substring overlap is the one
   residual cost the name pays, and it is a documented lint interaction, not a
@@ -35,9 +34,10 @@ serves, not the mechanism it happens to use.
   (ὁμολογία, "accord, agreement in the same terms").
 - **phylake fallback:** **tamieion** (ταμιεῖον, "storeroom, treasury"), if
   operator review prefers the storeroom sense over the guarding sense.
-- Suffix discipline (GNOMON): syntheke, epitrope, phylake, homologia all take
-  -η/-ή abstract-practice or result suffixes; dioptron keeps its -ον instrument
-  suffix; xenos is a bare noun naming the outsider role.
+- Suffix discipline (GNOMON): syntheke, epitrope, and phylake take the -η/-ή
+  abstract-practice suffix; the fallback homologia takes -ια (abstract state)
+  and tamieion takes -ον (place); dioptron keeps its -ον instrument suffix;
+  xenos is a bare noun naming the outsider role.
 
 ## Name decision record
 

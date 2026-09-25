@@ -1,0 +1,17 @@
+[meta]
+name = "audit_query_own"
+kind = "positive"
+clause = "Every audit read is itself audited, recording the grant and scope used."
+
+[request]
+capability = "AuditQuery"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+audit_scope = "OwnAndOwnedSessions"
+
+[expected]
+outcome = "Success"
+scope_applied = "OwnAndOwnedSessions"
+records_outside_scope = 0
+read_audited = true
