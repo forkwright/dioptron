@@ -10,9 +10,9 @@
 use epitrope::{Grant, LedgerId, Revocation, TargetScope};
 use snafu::ResultExt as _;
 use syntheke::{
-    ArtifactRef, AuditScope, AuditSeq, Capability, Ceilings, Cost, Failure, GrantId, InvocationId,
-    InvocationState, OutcomeKind, ReleaseReason, SessionId, SessionScope, SourceRef, TenantClass,
-    TenantId, Timestamp,
+    ArtifactRef, AuditScope, AuditSeq, Capability, Ceilings, Cost, DenyCode, Failure, GrantId,
+    InvocationId, InvocationState, OutcomeKind, ReleaseReason, SessionId, SessionScope, SourceRef,
+    TenantClass, TenantId, Timestamp,
 };
 
 use crate::error::AuthzSnafu;
@@ -53,6 +53,88 @@ pub(crate) mod kind {
     pub(crate) const REKEY: RecordKind = RecordKind::new(16);
     /// A crypto-shredded tenant's tombstone in `tenants`.
     pub(crate) const TOMBSTONE: RecordKind = RecordKind::new(17);
+}
+
+/// How an invocation ended. Each variant records only what its terminal
+/// state means (contract § Invocation lifecycle): a settled call the reply
+/// the caller observed, a released call the reason it released, and an
+/// unknown effect nothing more. A release reason is never stored as a
+/// failure, so `Released(Abandoned)` and `Released(Cancelled)` stay
+/// distinct in every record.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
+#[non_exhaustive]
+pub enum Terminal {
+    /// `Settled`: the actual consumption kept, the remainder released.
+    Settled {
+        /// The failure the caller observed; `None` for a success.
+        failure: Option<Failure>,
+    },
+    /// `Released`: the whole reservation returned.
+    Released {
+        /// Why it was released.
+        reason: ReleaseReason,
+    },
+    /// `UnknownEffect`: the whole reservation charged.
+    UnknownEffect,
+}
+
+impl Terminal {
+    /// The terminal state this ending records.
+    #[must_use]
+    pub const fn state(self) -> InvocationState {
+        match self {
+            Self::Settled { .. } => InvocationState::Settled,
+            Self::Released { .. } => InvocationState::Released,
+            Self::UnknownEffect => InvocationState::UnknownEffect,
+        }
+    }
+
+    /// The release reason, for `Released` only.
+    #[must_use]
+    pub const fn release_reason(self) -> Option<ReleaseReason> {
+        match self {
+            Self::Released { reason } => Some(reason),
+            Self::Settled { .. } | Self::UnknownEffect => None,
+        }
+    }
+
+    /// The failure an idempotent replay of this invocation reports, or
+    /// `None` for a success.
+    ///
+    /// For `Released` this is a reply mapping, not the record: `Revoked`
+    /// reads as `Denied{GrantRevoked}`; `ProducerUnavailable`,
+    /// `DeadlineExceeded`, and `Cancelled` as themselves; `Abandoned`,
+    /// which no caller ever received a reply for, as `Cancelled`, the
+    /// contract's outcome for a call that ended before any effect. The
+    /// reason itself stays in [`Terminal::release_reason`].
+    #[must_use]
+    pub const fn reply_failure(self) -> Option<Failure> {
+        match self {
+            Self::Settled { failure } => failure,
+            Self::UnknownEffect => Some(Failure::UnknownEffect),
+            Self::Released { reason } => Some(match reason {
+                ReleaseReason::Revoked => Failure::denied(DenyCode::GrantRevoked),
+                ReleaseReason::ProducerUnavailable => Failure::ProducerUnavailable,
+                ReleaseReason::DeadlineExceeded => Failure::DeadlineExceeded,
+                // WHY a wildcard: `ReleaseReason` is non-exhaustive; a
+                // reason a later contract adds reads as a call that ended
+                // before any effect until it states otherwise.
+                _ => Failure::Cancelled,
+            }),
+        }
+    }
+
+    /// The reply kind of [`Terminal::reply_failure`]: `Success` when it is
+    /// `None`.
+    #[must_use]
+    pub const fn outcome(self) -> OutcomeKind {
+        match self.reply_failure() {
+            Some(failure) => failure.kind(),
+            None => OutcomeKind::Success,
+        }
+    }
 }
 
 /// Derive list shared by every stored record.
@@ -219,13 +301,9 @@ record! {
         pub(crate) ledgers: Vec<LedgerRef>,
         /// The declared maximum debited from each ledger.
         pub(crate) reserved: Cost,
-        pub(crate) request_digest: [u8; 32],
         pub(crate) state: InvocationState,
-        pub(crate) release_reason: Option<ReleaseReason>,
-        /// The reply kind recorded at the terminal state.
-        pub(crate) outcome: Option<OutcomeKind>,
-        /// The failure recorded at the terminal state, if any.
-        pub(crate) failure: Option<Failure>,
+        /// How the invocation ended; `None` until a terminal state.
+        pub(crate) terminal: Option<Terminal>,
         /// Actual consumption, recorded at B3 or at a B2 settlement.
         pub(crate) actual: Option<Cost>,
         /// Amount kept as spent at B5.
@@ -239,10 +317,15 @@ record! {
 }
 
 record! {
-    /// An idempotency index entry.
+    /// An idempotency index entry. It lives only in the tenant-sealed
+    /// `idem` keyspace, so the request binding is shredded with the
+    /// tenant.
     pub(crate) struct IdemRecord {
         pub(crate) invocation: InvocationId,
-        pub(crate) request_digest: [u8; 32],
+        /// The store's binding of the caller's request digest to the
+        /// designated grant, capability, session, target, and declared
+        /// cost ([`crate::store::invocation`]).
+        pub(crate) request_binding: [u8; 32],
     }
 }
 
@@ -304,7 +387,12 @@ record! {
         pub(crate) invocation: InvocationId,
         pub(crate) capability: Capability,
         pub(crate) state: InvocationState,
+        /// The reply kind at that state; for `Released`, the reply a
+        /// replay observes ([`Terminal::outcome`]).
         pub(crate) outcome: OutcomeKind,
+        /// Why the reservation was released; present exactly when `state`
+        /// is `Released`.
+        pub(crate) release_reason: Option<ReleaseReason>,
     }
 }
 

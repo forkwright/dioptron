@@ -10,19 +10,19 @@
 use epitrope::{Settlement, Step, next_state, release, settle, unknown_effect_settlement};
 use fjall::Readable as _;
 use snafu::{OptionExt as _, ResultExt as _, ensure};
-use syntheke::{DenyCode, Failure, InvocationId, InvocationState, OutcomeKind, ReleaseReason};
+use syntheke::{Failure, InvocationId, InvocationState, ReleaseReason};
 
 use super::audit::AuditEntry;
-use super::invocation::{InvocationStatus, SettleOutcome, Transfer};
+use super::invocation::{InvocationStatus, SettleOutcome, Transfer, artifact_ref};
 use super::record_key;
-use super::records::{ArtifactRecord, InvocationRecord, LocatorRecord, SessionIndexRecord};
+use super::records::{
+    ArtifactRecord, InvocationRecord, LocatorRecord, SessionIndexRecord, Terminal,
+};
 use super::view::View;
 use super::{Boundary, Store, WriteTx, slot};
 use crate::Result;
 use crate::crypto::provenance_digest;
-use crate::error::{
-    AuthzSnafu, ConflictSnafu, DatabaseSnafu, InconsistentSnafu, SettleMismatchSnafu,
-};
+use crate::error::{AuthzSnafu, DatabaseSnafu, InconsistentSnafu, SettleMismatchSnafu};
 
 impl Store {
     /// Runs one state-checked step on `id` in one transaction: loads the
@@ -46,10 +46,13 @@ impl Store {
         record.state = next;
         record.updated_at = self.now();
         if next.is_terminal() {
-            let outcome = record.outcome.context(InconsistentSnafu {
-                what: "terminal state without an outcome",
-            })?;
-            let entry = AuditEntry::new(record.tenant, record.id, record.capability, next, outcome)
+            let terminal = record
+                .terminal
+                .filter(|terminal| terminal.state() == next)
+                .context(InconsistentSnafu {
+                    what: "terminal state without a matching terminal record",
+                })?;
+            let entry = AuditEntry::terminal(record.tenant, record.id, record.capability, terminal)
                 .in_session(record.session);
             self.append_audit(&mut tx, entry)?;
         }
@@ -69,14 +72,14 @@ impl Store {
     }
 
     /// B3: writes the envelope as a tenant-sealed blob at its keyed address
-    /// and a pending side record. Nothing points readers at either until
-    /// B4, so neither is visible.
+    /// and a pending side record for the artifact [`super::artifact_ref`]
+    /// names. Nothing points readers at either until B4, so neither is
+    /// visible.
     ///
     /// # Errors
     ///
-    /// As [`Store::dispatch`], plus [`crate::Error::Conflict`] when the
-    /// artifact id is already published and
-    /// [`crate::Error::PlaintextTooLarge`] for an oversized envelope.
+    /// As [`Store::dispatch`], plus [`crate::Error::PlaintextTooLarge`] for
+    /// an oversized envelope.
     pub fn complete_transfer(
         &self,
         id: InvocationId,
@@ -96,12 +99,7 @@ impl Store {
         record: &mut InvocationRecord,
         transfer: &Transfer<'_>,
     ) -> Result<()> {
-        let locator = record_key::store::locator(self.keys.index(), transfer.artifact)?;
-        ensure!(
-            !tx.contains_key(self.ks.get(slot::LOCATOR.keyspace)?, locator)
-                .context(DatabaseSnafu)?,
-            ConflictSnafu { what: "artifact" }
-        );
+        let artifact = artifact_ref(record.id);
         let tenant_keys = self.tenant_keys(&*tx, record.tenant)?;
         let address = tenant_keys.blob_address(transfer.envelope)?;
         let blob_key = record_key::tenant::blob(tenant_keys.index(), record.tenant, &address)?;
@@ -115,7 +113,7 @@ impl Store {
             tx.insert(blobs, blob_key, sealed);
         }
         let pending = ArtifactRecord {
-            artifact: transfer.artifact,
+            artifact,
             invocation: record.id,
             tenant: record.tenant,
             session: record.session,
@@ -142,7 +140,7 @@ impl Store {
             tenant_keys.meta(),
             &pending,
         )?;
-        record.artifact = Some(transfer.artifact);
+        record.artifact = Some(artifact);
         record.actual = Some(transfer.actual);
         record.revoked_after_effect = transfer.revoked_after_effect;
         Ok(())
@@ -155,7 +153,7 @@ impl Store {
     /// # Errors
     ///
     /// As [`Store::dispatch`], plus [`crate::Error::Inconsistent`] when the
-    /// pending record is missing.
+    /// pending record is missing or its artifact is already published.
     pub fn publish(&self, id: InvocationId) -> Result<InvocationStatus> {
         self.transition(id, Step::Publish, Boundary::Publish, Self::stage_publish)
     }
@@ -175,13 +173,15 @@ impl Store {
                 what: "transfer-complete invocation has no pending record",
             })?;
         let locator_key = record_key::store::locator(self.keys.index(), artifact.artifact)?;
-        // WHY re-check: two invocations may both reach B3 with the same
-        // artifact id (a caller bug); the second publish must not rewrite
-        // the first's published artifact (R4.4).
+        // INVARIANT: the artifact id is the invocation id and B4 runs once
+        // per invocation, so no locator exists yet. Checked anyway, because
+        // a published artifact is never rewritten (R4.4).
         ensure!(
             !tx.contains_key(self.ks.get(slot::LOCATOR.keyspace)?, locator_key)
                 .context(DatabaseSnafu)?,
-            ConflictSnafu { what: "artifact" }
+            InconsistentSnafu {
+                what: "artifact is already published",
+            }
         );
         let now = self.now();
         artifact.published_at = Some(now);
@@ -228,19 +228,21 @@ impl Store {
     /// # Errors
     ///
     /// As [`Store::dispatch`], plus [`crate::Error::SettleMismatch`] when
-    /// the outcome does not fit the state.
+    /// the outcome does not fit the state, including a `Failed` whose
+    /// failure is not one a started producer reports.
     pub fn settle(&self, id: InvocationId, outcome: SettleOutcome) -> Result<InvocationStatus> {
         self.transition(id, Step::Settle, Boundary::Terminal, |store, tx, record| {
-            let (actual, kind, failure) = match (record.state, outcome) {
+            let (actual, failure) = match (record.state, outcome) {
                 (InvocationState::Published, SettleOutcome::Success) => (
                     record.actual.context(InconsistentSnafu {
                         what: "published invocation has no recorded consumption",
                     })?,
-                    OutcomeKind::Success,
                     None,
                 ),
-                (InvocationState::Dispatched, SettleOutcome::Failed { failure, actual }) => {
-                    (actual, failure.kind(), Some(failure))
+                (InvocationState::Dispatched, SettleOutcome::Failed { failure, actual })
+                    if started_failure(failure) =>
+                {
+                    (actual, Some(failure))
                 }
                 (state, _) => return SettleMismatchSnafu { state }.fail(),
             };
@@ -251,13 +253,13 @@ impl Store {
                 Err(error) => return Err(error).context(AuthzSnafu),
             };
             record.actual = Some(actual);
-            record.outcome = Some(kind);
-            record.failure = failure;
+            record.terminal = Some(Terminal::Settled { failure });
             store.apply_settlement(tx, record, settlement)
         })
     }
 
-    /// B5: releases the whole reservation for `reason`.
+    /// B5: releases the whole reservation for `reason`, which the
+    /// invocation and its audit entry record as given.
     ///
     /// # Errors
     ///
@@ -268,10 +270,7 @@ impl Store {
             Step::Release(reason),
             Boundary::Terminal,
             |store, tx, record| {
-                let failure = release_failure(reason);
-                record.release_reason = Some(reason);
-                record.outcome = Some(failure.kind());
-                record.failure = Some(failure);
+                record.terminal = Some(Terminal::Released { reason });
                 let settlement = Settlement {
                     debit: syntheke::Cost::default(),
                     release: record.reserved,
@@ -293,8 +292,7 @@ impl Store {
             Step::MarkUnknownEffect,
             Boundary::Terminal,
             |store, tx, record| {
-                record.outcome = Some(OutcomeKind::UnknownEffect);
-                record.failure = Some(Failure::UnknownEffect);
+                record.terminal = Some(Terminal::UnknownEffect);
                 let settlement = unknown_effect_settlement(&record.reserved);
                 store.apply_settlement(tx, record, settlement)
             },
@@ -323,16 +321,19 @@ impl Store {
     }
 }
 
-/// The failure a caller observes for a released invocation.
+/// Whether `failure` is one a producer that started can report, and so
+/// fits a settlement from B2 (contract § Invocation lifecycle).
 ///
-/// WHY `Cancelled` for `Abandoned`: an abandoned call was never dispatched
-/// and its caller never received a reply; a replay reports that it did
-/// not run, which is what a cancellation before any effect means.
-const fn release_failure(reason: ReleaseReason) -> Failure {
-    match reason {
-        ReleaseReason::Revoked => Failure::denied(DenyCode::GrantRevoked),
-        ReleaseReason::ProducerUnavailable => Failure::ProducerUnavailable,
-        ReleaseReason::DeadlineExceeded => Failure::DeadlineExceeded,
-        _ => Failure::Cancelled,
-    }
+/// WHY closed: `UnknownEffect` has its own conservative step, and a
+/// denial or protocol failure is decided before dispatch; letting either
+/// settle at the actual cost would under-charge a call whose effect is
+/// unproven.
+const fn started_failure(failure: Failure) -> bool {
+    matches!(
+        failure,
+        Failure::TransferFailed { .. }
+            | Failure::ExtractionFailed { .. }
+            | Failure::DeadlineExceeded
+            | Failure::Cancelled
+    )
 }

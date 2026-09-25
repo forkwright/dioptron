@@ -17,11 +17,11 @@ use syntheke::{
     InvocationId, SessionId, SessionScope, SourceRef, TenantClass, TenantId, Timestamp,
 };
 
-use syntheke::{AuditRecord, QueryPage, ReadChunk};
+use syntheke::{QueryPage, ReadChunk};
 
 use super::keyring::TenantKeyring;
 use super::{
-    ALL_KEYSPACES, ArtifactInfo, Begin, Boundary, Crash, Failpoint, GrantIssue, Intent,
+    ALL_KEYSPACES, ArtifactInfo, AuditEvent, Begin, Boundary, Crash, Failpoint, GrantIssue, Intent,
     IssueOutcome, NewSession, Phase, RootGrant, SettleOutcome, Slot, Store, StoreOptions,
     TenantRegistration, Transfer, slot,
 };
@@ -267,9 +267,9 @@ pub(crate) const fn invocation(byte: u8) -> InvocationId {
     InvocationId::from_bytes([byte; 16])
 }
 
-/// An artifact id from one byte.
+/// The artifact invocation `byte` publishes under.
 pub(crate) const fn artifact(byte: u8) -> ArtifactRef {
-    ArtifactRef::from_bytes([byte; 16])
+    super::artifact_ref(invocation(byte))
 }
 
 /// A 24-byte idempotency key from one byte.
@@ -471,7 +471,7 @@ pub(crate) fn publish_capture(store: &Store, byte: u8, envelope: &[u8]) -> Artif
         .expect("B1");
     assert!(matches!(begin, Begin::Persisted(_)), "{begin:?}");
     store.dispatch(invocation(byte)).expect("B2");
-    let transfer = Transfer::new(artifact(byte), envelope, source(), ACTUAL);
+    let transfer = Transfer::new(envelope, source(), ACTUAL);
     store
         .complete_transfer(invocation(byte), &transfer)
         .expect("B3");
@@ -488,7 +488,7 @@ pub(crate) struct Reads {
     pub(crate) artifacts: Vec<Option<ArtifactInfo>>,
     pub(crate) envelopes: Vec<Option<ReadChunk>>,
     pub(crate) session: Option<QueryPage>,
-    pub(crate) audit: Vec<AuditRecord>,
+    pub(crate) audit: Vec<AuditEvent>,
 }
 
 /// Reads `artifacts`, their envelopes, the agent's session, and the

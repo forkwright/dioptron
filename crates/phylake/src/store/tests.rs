@@ -2,6 +2,7 @@
 //! reproducible entropy.
 #![expect(clippy::expect_used, reason = "test assertions must fail loudly")]
 
+mod audit;
 mod backup;
 mod crash;
 mod directory;
@@ -11,3 +12,4 @@ mod open;
 mod rekey;
 mod root;
 mod shred;
+mod terminal;

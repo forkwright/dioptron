@@ -61,12 +61,15 @@ allow-wildcard-paths = true
 # No fjall 3 release uses a newer dashmap or quick_cache, and holding rkyv
 # back would pin the wire validator below its current release. The copies
 # are ordinary hash-table code with no shared types across the boundary.
-# Retire the 0.14 entry when fjall moves off dashmap 6, and the 0.16 entry
-# when lsm-tree takes a quick_cache on hashbrown 0.17.
+# Retirement: the 0.16 entry retires when lsm-tree moves to quick_cache 0.7,
+# which already uses hashbrown 0.17. The 0.14 entry retires when fjall's
+# concurrent map reaches hashbrown 0.17; leaving dashmap 6 alone is not
+# enough, because the dashmap 7 release candidates use hashbrown 0.15, so
+# that move turns this entry into a 0.15 entry rather than removing it.
 skip = [
     { crate = "syn@2", reason = "proc-macro build dependency; snafu-derive and munge_macro have no syn 3 release yet" },
-    { crate = "hashbrown@0.14", reason = "dashmap 6 under fjall 3.1; retire when fjall leaves dashmap 6" },
-    { crate = "hashbrown@0.16", reason = "quick_cache 0.6 under lsm-tree 3.1; retire when lsm-tree takes a quick_cache on hashbrown 0.17" },
+    { crate = "hashbrown@0.14", reason = "dashmap 6 under fjall 3.1; retire when fjall's map dependency is on hashbrown 0.17 (dashmap 7 rc uses 0.15)" },
+    { crate = "hashbrown@0.16", reason = "quick_cache 0.6 under lsm-tree 3.1; retire when lsm-tree moves to quick_cache 0.7 (hashbrown 0.17)" },
 ]
 
 [sources]

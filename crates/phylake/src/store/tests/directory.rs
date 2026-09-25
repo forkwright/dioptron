@@ -1,6 +1,6 @@
 //! Grant, revocation, and session writes, and the read views over them.
 
-use epitrope::{GrantView as _, IssueContext, LedgerView as _, Origin};
+use epitrope::{GrantView as _, IssueContext, LedgerId, LedgerView as _, Origin};
 use syntheke::{
     Capability, DenyCode, Failure, GrantId, GrantIssueRequest, InvocationState, NarrowingAxis,
     OutcomeKind, SessionId, SessionScope, TenantId, Timestamp,
@@ -8,10 +8,10 @@ use syntheke::{
 
 use crate::Error;
 use crate::store::test_support::{
-    AGENT, Fixture, G_AGENT, G_ROOT, OPERATOR, OTHER, S_AGENT, caps, capture, ceilings, dump,
+    AGENT, Fixture, G_AGENT, G_ROOT, OPERATOR, OTHER, S_AGENT, caps, capture, ceilings, dump, idem,
     invocation,
 };
-use crate::store::{GrantIssue, IssueOutcome, NewSession, RevokeGrant, RootGrant};
+use crate::store::{Begin, GrantIssue, Intent, IssueOutcome, NewSession, RevokeGrant, RootGrant};
 
 /// A child of the agent's grant for the other agent.
 fn child_request(fetches: u64) -> GrantIssueRequest {
@@ -101,6 +101,7 @@ fn issued_child_is_stored_and_audited() {
         .audit_records(AGENT, None, 100)
         .expect("audit")
         .into_iter()
+        .map(|event| event.record)
         .any(|record| {
             record.invocation == invocation(0x40)
                 && record.capability == Capability::GrantIssue
@@ -113,6 +114,43 @@ fn issued_child_is_stored_and_audited() {
         issue(&store, &child_request(5)),
         outcome,
         "a repeat returns the grant"
+    );
+    assert_eq!(dump(&store), before, "a repeat writes nothing");
+}
+
+#[test]
+fn repeat_issue_after_the_parent_spends_returns_the_grant() {
+    let fixture = Fixture::new();
+    let store = fixture.seeded();
+    let issued = issue(&store, &child_request(10));
+    assert!(
+        matches!(issued, IssueOutcome::Issued { .. }),
+        "the child takes the parent's whole remaining 10 fetches: {issued:?}"
+    );
+    let key = idem(0x42);
+    let begin = store
+        .begin(&Intent::new(
+            invocation(0x42),
+            capture(G_AGENT),
+            &key,
+            [0xd4; 32],
+        ))
+        .expect("B1");
+    assert!(matches!(begin, Begin::Persisted(_)), "{begin:?}");
+    assert_eq!(
+        store
+            .snapshot()
+            .used(LedgerId::Grant(G_AGENT))
+            .expect("ledger")
+            .fetches,
+        1,
+        "the parent has spent a fetch, so a fresh issue of 10 would be refused"
+    );
+    let before = dump(&store);
+    assert_eq!(
+        issue(&store, &child_request(10)),
+        issued,
+        "a repeat of an issued request is not re-decided"
     );
     assert_eq!(dump(&store), before, "a repeat writes nothing");
 }
@@ -138,6 +176,7 @@ fn broader_child_is_refused_and_audited() {
         .audit_records(AGENT, None, 100)
         .expect("audit")
         .into_iter()
+        .map(|event| event.record)
         .any(|record| {
             record.invocation == invocation(0x40) && record.state == InvocationState::Denied
         });
@@ -177,6 +216,7 @@ fn revocation_invalidates_the_subtree_and_is_idempotent() {
         .audit_records(OPERATOR, None, 100)
         .expect("audit")
         .into_iter()
+        .map(|event| event.record)
         .find(|record| record.invocation == invocation(0x50))
         .expect("audited");
     assert_eq!(

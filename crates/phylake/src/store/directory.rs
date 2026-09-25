@@ -349,6 +349,11 @@ impl Store {
     /// The decision reads the parent's ledger inside the writing
     /// transaction. Issued or refused, an audit entry records the call.
     ///
+    /// A repeat of an issued request (same child id, issuer, parent, and
+    /// shape) returns `Issued` and writes nothing, before any decision: the
+    /// parent's remaining budget or validity may have moved since, and a
+    /// stored grant is not re-decided.
+    ///
     /// # Errors
     ///
     /// [`crate::Error::Authz`] when the decision cannot be made (a broken
@@ -361,6 +366,19 @@ impl Store {
                 store: self,
                 reader: &tx,
             };
+            if let Some(existing) = view.grant_record(issue.context.child)?
+                && existing.issuer == issue.context.issuer
+                && existing.parent == Some(issue.context.designated)
+            {
+                ensure!(
+                    issued_from(&view, &existing, issue.request)?,
+                    ConflictSnafu { what: "grant" }
+                );
+                return Ok(IssueOutcome::Issued {
+                    grant: existing.id,
+                    parent: issue.context.designated,
+                });
+            }
             check_issue(&view, &issue.context, issue.request, &*self.clock).context(AuthzSnafu)?
         };
         let (outcome, state) = match decision {
@@ -534,6 +552,32 @@ const fn session_opened(new: &NewSession, parent: Option<SessionId>) -> SessionO
         owner: new.owner,
         parent_session: parent,
     }
+}
+
+/// Whether the stored child grant `existing` is the one `request` asks
+/// for under its stored parent.
+fn issued_from<R: fjall::Readable>(
+    view: &View<'_, R>,
+    existing: &GrantRecord,
+    request: &GrantIssueRequest,
+) -> Result<bool> {
+    let max_depth = match request.max_depth {
+        Some(max_depth) => Some(max_depth),
+        None => match existing.parent {
+            Some(parent) => view.grant_record(parent)?.map(|parent| parent.max_depth),
+            None => None,
+        },
+    };
+    let capabilities: BTreeSet<Capability> = request.capabilities.iter().copied().collect();
+    let stored: BTreeSet<Capability> = existing.capabilities.iter().copied().collect();
+    Ok(existing.holder == request.holder
+        && stored == capabilities
+        && existing.session_scope == request.session_scope
+        && existing.target_patterns == request.target_scope
+        && existing.ceilings == request.ceilings
+        && existing.not_before == request.not_before
+        && existing.expires_at == request.expires_at
+        && Some(existing.max_depth) == max_depth)
 }
 
 /// Whether a stored tenant is the one `registration` describes.
