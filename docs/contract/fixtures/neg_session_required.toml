@@ -1,7 +1,7 @@
 [meta]
 name = "neg_session_required"
 kind = "negative"
-clause = "A call of a capability that requires a session and names none returns Denied{SessionRequired}."
+clause = "A required session that the call does not name is refused with `Denied{SessionRequired}` at the session check."
 
 [request]
 capability = "Query"

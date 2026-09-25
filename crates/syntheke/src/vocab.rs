@@ -25,7 +25,8 @@ named_enum! {
         Query => "Query",
         /// Issue a child grant that attenuates one the tenant holds.
         GrantIssue => "GrantIssue",
-        /// Revoke a grant the tenant issued, and its descendants.
+        /// Revoke the designated grant or a grant that descends from it,
+        /// and through chain validity its descendants.
         GrantRevoke => "GrantRevoke",
         /// Read audit records within the tenant's audit scope.
         AuditQuery => "AuditQuery",
