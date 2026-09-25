@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 # WHY 1.97 and not the edition floor (1.85): the MSRV claims only what CI
 # builds. The gate runs the rust-toolchain.toml channel (1.97.1) and no
@@ -97,7 +97,7 @@ rkyv = { version = "0.8.18", default-features = false, features = [
 ] }
 # WHY syntheke: the contract crate; epitrope decides over its types.
 # Publishable crates pin internal dependencies by version, declared once here.
-syntheke = { path = "crates/syntheke", version = "0.1.6" }
+syntheke = { path = "crates/syntheke", version = "0.1.7" }
 # WHY rustix: safe wrappers where std has none. phylake opens the root key
 # file with O_NOFOLLOW | O_NONBLOCK and reads the effective uid; dioptron's
 # tests send a signal to the test process; phylake's store compaction swaps
@@ -145,10 +145,10 @@ zeroize = "1.8"
 fjall = { version = "3.1", default-features = false }
 # WHY epitrope: phylake runs epitrope's transition table, reservation
 # arithmetic, and recovery rules inside its transactions.
-epitrope = { path = "crates/epitrope", version = "0.1.6" }
+epitrope = { path = "crates/epitrope", version = "0.1.7" }
 # WHY phylake: the custody store; the daemon commits every lifecycle
 # boundary through it.
-phylake = { path = "crates/phylake", version = "0.1.6" }
+phylake = { path = "crates/phylake", version = "0.1.7" }
 
 [profile.dev.package."*"]
 opt-level = 2

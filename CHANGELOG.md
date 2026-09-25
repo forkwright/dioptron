@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.7](https://github.com/forkwright/dioptron/compare/v0.1.6...v0.1.7) (2026-09-25)
+
+
+### Features
+
+* **dioptron:** orchestrate invocations and ship the daemon binary ([#90](https://github.com/forkwright/dioptron/issues/90)) ([b4f093f](https://github.com/forkwright/dioptron/commit/b4f093fec4b6dbac830cf48f6603a9485599f796))
+* **dioptron:** serve the capability contract over a Unix socket ([#87](https://github.com/forkwright/dioptron/issues/87)) ([e0fa501](https://github.com/forkwright/dioptron/commit/e0fa501aa0a4abc5ccf0e0464c66132d5370e1c3))
+* **epitrope:** implement grant narrowing, validity, budgets and lifecycle ([#86](https://github.com/forkwright/dioptron/issues/86)) ([b7d63b3](https://github.com/forkwright/dioptron/commit/b7d63b355e75c9cbc0f39db379e3393a3a444394))
+* **infra:** bootstrap the Rust workspace, CI and implementation kickoff ([#78](https://github.com/forkwright/dioptron/issues/78)) ([d25375f](https://github.com/forkwright/dioptron/commit/d25375f721abd489ba775bbce9175992b3bd5bb6))
+* **phylake:** add root key file and at-rest sealing primitives ([#81](https://github.com/forkwright/dioptron/issues/81)) ([a49f36f](https://github.com/forkwright/dioptron/commit/a49f36f7ff1179a2b7fb43cc848c06a6338a55f1)), closes [#35](https://github.com/forkwright/dioptron/issues/35)
+* **phylake:** add the custody store with B1–B5 transactions and recovery ([#88](https://github.com/forkwright/dioptron/issues/88)) ([a5acfb1](https://github.com/forkwright/dioptron/commit/a5acfb1ca90fc894d6248c08e54d0fb34b32d478))
+* **phylake:** rotate root and tenant keys, crypto-shred, and verify restores ([#89](https://github.com/forkwright/dioptron/issues/89)) ([6f24dd6](https://github.com/forkwright/dioptron/commit/6f24dd6e8e6c1dc2dd46056523dd5cb34a9142c7))
+* **syntheke:** implement the Phase 01 capability contract types ([#82](https://github.com/forkwright/dioptron/issues/82)) ([ef044ff](https://github.com/forkwright/dioptron/commit/ef044ff6f5ffe97c81c83e027f01f3f874e9985b))
+* **xenos:** implement the independent wire client ([#83](https://github.com/forkwright/dioptron/issues/83)) ([58d1712](https://github.com/forkwright/dioptron/commit/58d17128e0e6f4e11686cf32848d32eb2dc71a91))
+
+
+### Bug Fixes
+
+* **syntheke:** reject non-canonical frame bodies ([#84](https://github.com/forkwright/dioptron/issues/84)) ([0dbc4af](https://github.com/forkwright/dioptron/commit/0dbc4afe586143104d1fdcc0243304423a9360ff))
+
 ## [0.1.6](https://github.com/forkwright/dioptron/compare/v0.1.5...v0.1.6) (2026-09-03)
 
 
