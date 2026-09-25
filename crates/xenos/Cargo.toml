@@ -9,5 +9,16 @@ repository.workspace = true
 # WHY: a test client, not a supported consumer library.
 publish = false
 
+[dependencies]
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+snafu.workspace = true
+# WHY path without version: publish = false; deny.toml allows wildcard
+# paths for this crate.
+syntheke = { path = "../syntheke" }
+
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true
