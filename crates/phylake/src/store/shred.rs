@@ -17,11 +17,12 @@ use std::collections::HashSet;
 
 use fjall::Readable;
 use snafu::{OptionExt as _, ensure};
-use syntheke::TenantId;
+use syntheke::{SessionId, TenantId};
 
 use super::codec::StoredRecord as _;
 use super::record_key::store as keys;
 use super::records::{InvocationRecord, SessionRecord, TombstoneRecord};
+use super::view::View;
 use super::{Store, slot};
 use crate::Result;
 use crate::crypto::{KeyId, Keyspace};
@@ -83,6 +84,25 @@ impl Store {
         self.commit(tx, None)?;
         self.evict_tenant_keys(tenant);
         Ok(())
+    }
+
+    /// Whether `session` exists and its owner was shredded.
+    pub(crate) fn session_owner_shredded<R: Readable>(
+        &self,
+        reader: &R,
+        session: Option<SessionId>,
+    ) -> Result<bool> {
+        let Some(session) = session else {
+            return Ok(false);
+        };
+        let view = View {
+            store: self,
+            reader,
+        };
+        match view.session_record(session)? {
+            Some(record) => Ok(self.tombstone(reader, record.owner)?.is_some()),
+            None => Ok(false),
+        }
     }
 
     /// Whether an invocation of `tenant`, or in a session it owns, is not

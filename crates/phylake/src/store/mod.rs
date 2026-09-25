@@ -9,8 +9,9 @@
 //! Two sealing scopes exist (the normative table is
 //! `docs/design/custody-store.md`, "Sealing scope"):
 //!
-//! - store-sealed (root-derived keys): tenants, grants, revocations,
-//!   sessions, invocations, ledgers, artifact locators, and audit stubs.
+//! - store-sealed (root-derived keys): tenants and tombstones, grants,
+//!   revocations, sessions, invocations, ledgers, artifact locators, audit
+//!   stubs, and rekey records.
 //!   Authorization walks grant chains across tenants and recovery scans
 //!   every invocation, so these must open without knowing a tenant first.
 //!   They carry identifiers and amounts, not acquired content.

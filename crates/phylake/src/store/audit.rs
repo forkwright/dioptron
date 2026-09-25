@@ -276,7 +276,7 @@ impl Store {
             let (key, sealed) = guard.into_inner().context(DatabaseSnafu)?;
             match Self::open_bytes(&[self.keys.meta()], slot::TENANT, &key, &sealed) {
                 Ok(plain) => {
-                    ids.push(TenantRecord::decode(&plain, slot::TENANT.keyspace.name())?.id)
+                    ids.push(TenantRecord::decode(&plain, slot::TENANT.keyspace.name())?.id);
                 }
                 // WHY: the only other kind in `tenants` is a tombstone; it
                 // must still authenticate as one.

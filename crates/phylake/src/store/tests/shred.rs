@@ -4,7 +4,9 @@
 
 use std::num::NonZeroUsize;
 
-use syntheke::{IdempotencyKey, TenantClass};
+use syntheke::{
+    AuditScope, Capability, Failure, GrantId, IdempotencyKey, SessionScope, TenantClass, Timestamp,
+};
 
 use crate::Error;
 use crate::crypto::{KeyId, Keyspace};
@@ -12,10 +14,10 @@ use crate::store::codec::StoredRecord as _;
 use crate::store::record_key::store as keys;
 use crate::store::records::AuditStubRecord;
 use crate::store::test_support::{
-    AGENT, Fixture, G_AGENT, OTHER, S_AGENT, capture, count, disk_hits, dump, invocation,
+    AGENT, Fixture, G_AGENT, OPERATOR, OTHER, S_AGENT, capture, count, disk_hits, dump, invocation,
     publish_capture, raw,
 };
-use crate::store::{Begin, Intent, Store, TenantRegistration, slot};
+use crate::store::{AuditQuery, Begin, Intent, RootGrant, Store, TenantRegistration, slot};
 
 const ENVELOPE_A: &[u8] = b"<p>SHRED-ENVELOPE-A example.com</p>";
 const ENVELOPE_B: &[u8] = b"<p>SHRED-ENVELOPE-B example.com</p>";
@@ -117,6 +119,35 @@ fn shred_then_compact_removes_every_wrapped_key_from_disk() {
 }
 
 #[test]
+fn audit_query_skips_a_shredded_tenants_partition() {
+    let fixture = Fixture::new();
+    let store = fixture.seeded();
+    publish_capture(&store, 1, ENVELOPE_A);
+    let all = AuditQuery::new(OPERATOR, AuditScope::All, 1000);
+    let before = store.audit_query(&all).expect("query");
+    assert!(
+        before.iter().any(|event| event.record.tenant == AGENT),
+        "the agent's partition is read before the shred"
+    );
+    let expected: Vec<_> = before
+        .into_iter()
+        .filter(|event| event.record.tenant != AGENT)
+        .collect();
+    assert!(!expected.is_empty(), "other partitions hold records");
+
+    store.shred_tenant(AGENT).expect("shred");
+    assert_eq!(
+        store.audit_query(&all).expect("query after shred"),
+        expected,
+        "every other partition, and none of the shredded one"
+    );
+    let own = AuditQuery::new(OPERATOR, AuditScope::OwnAndOwnedSessions, 1000);
+    store.audit_query(&own).expect("scoped query after shred");
+    let store = store.compact().expect("compact");
+    assert_eq!(store.audit_query(&all).expect("after compaction"), expected);
+}
+
+#[test]
 fn shredded_tenant_cannot_act_or_register_again() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
@@ -184,6 +215,60 @@ fn shred_refuses_a_tenant_with_an_open_invocation() {
         "the open invocation is released"
     );
     store.shred_tenant(AGENT).expect("shred once terminal");
+}
+
+#[test]
+fn capture_into_a_shredded_owners_session_is_refused() {
+    let fixture = Fixture::new();
+    let store = fixture.seeded();
+    let granted = GrantId::from_bytes([0xc0; 16]);
+    let mut root = RootGrant::new(
+        granted,
+        OPERATOR,
+        Capability::ALL.iter().copied().collect(),
+        vec!["*".to_owned()],
+        (
+            Timestamp::from_unix_millis(0),
+            Timestamp::from_unix_millis(9_000_000),
+        ),
+        4,
+    );
+    root.session_scope = SessionScope::Sessions(vec![S_AGENT]);
+    store
+        .install_root_grant(&root)
+        .expect("grant on the agent's session");
+    let mut request = capture(granted);
+    request.tenant = OPERATOR;
+    let key = IdempotencyKey::new(vec![5; 24]).expect("key");
+    let plan = store.plan(&request).expect("plan");
+    assert_eq!(
+        plan.refusal, None,
+        "the operator may capture into the agent's session: {plan:?}"
+    );
+
+    store.shred_tenant(AGENT).expect("shred");
+    let begin = store
+        .begin(&Intent::new(invocation(5), request, &key, [5; 32]))
+        .expect("B1");
+    assert!(
+        matches!(
+            begin,
+            Begin::Refused {
+                failure: Failure::NotFoundOrDenied,
+                ..
+            }
+        ),
+        "{begin:?}"
+    );
+    assert_eq!(
+        store.invocation(invocation(5)).expect("read"),
+        None,
+        "no intent"
+    );
+    assert!(
+        store.recover().expect("recover").is_empty(),
+        "nothing to recover"
+    );
 }
 
 #[test]

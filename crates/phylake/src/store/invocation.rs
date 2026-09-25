@@ -229,7 +229,9 @@ impl Store {
     /// writers serialize, so two concurrent reservations cannot both spend
     /// the same remaining budget. A refused call writes its audit entry
     /// and nothing else. An idempotency key already bound to this request
-    /// returns the stored invocation; bound to another, a conflict.
+    /// returns the stored invocation; bound to another, a conflict. A call
+    /// into a session whose owner was shredded is refused as
+    /// `NotFoundOrDenied`.
     ///
     /// # Errors
     ///
@@ -267,6 +269,12 @@ impl Store {
             let failure = decision.refusal().unwrap_or(Failure::NotFoundOrDenied);
             return self.refuse(tx, intent, failure);
         };
+        if self.session_owner_shredded(&tx, intent.authz.session)? {
+            // WHY: the session index entry B4 writes is sealed under the
+            // owner's keys, which a shred deleted; refusing here keeps an
+            // invocation from reaching a state recovery cannot settle.
+            return self.refuse(tx, intent, Failure::NotFoundOrDenied);
+        }
         let record = self.intent_record(&mut tx, intent, chain, &reservation)?;
         self.put_invocation(&mut tx, &record)?;
         let idem = IdemRecord {
