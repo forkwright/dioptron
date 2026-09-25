@@ -291,10 +291,10 @@ settlement or release runs exactly once even across a retry (D17.16).
 | `Planned` | memory | Authorized, cost computed. Dry-run ends here. Nothing durable, including no audit. | Nothing persisted; nothing to recover. Caller re-issues. |
 | `Denied` | durable, terminal | Authorization of an `Execute` request failed; an audit record is the only write. A dry-run that would be denied reports the denial in its plan and writes nothing. | Terminal. No effect, no reservation held. |
 | B1 `IntentPersisted` | durable | Reservation, invocation intent, and idempotency index committed in one transaction. Producer not yet contacted. | Release the reservation as `Released(Abandoned)`. The producer was never called. |
-| B2 `Dispatched` | durable | Dispatch recorded before the producer call, so the call is known to have possibly started. | Settle conservatively at the reserved fetch count as `UnknownEffect`; never re-dispatch. The effect may or may not have happened; the contract refuses to repeat a possibly-live external action. |
+| B2 `Dispatched` | durable | Dispatch recorded before the producer call, so the call is known to have possibly started. | Settle conservatively as `UnknownEffect`, charging the whole reservation on every dimension; never re-dispatch. The effect may or may not have happened; the contract refuses to repeat a possibly-live external action. |
 | B3 `TransferComplete` | durable | The producer returned; the blob is written but not yet visible. | Roll forward: publish, then settle. The bytes exist; completing publish is safe and idempotent. |
 | B4 `Published` | durable | Atomic publish point: the artifact record, session index, and state committed in one transaction. The capture is now visible. | Roll forward: settle. The effect is durable and visible; only reconciliation remains. |
-| B5 `Settled{outcome}` / `Released{reason}` / `UnknownEffect` | durable, terminal | Actual budget settled and remainder released, the whole reservation released with a reason, or the reserved cost charged because the effect cannot be proven. | Terminal. |
+| B5 `Settled{outcome}` / `Released{reason}` / `UnknownEffect` | durable, terminal | Actual budget settled and remainder released, the whole reservation released with a reason, or the whole reservation charged because the effect cannot be proven. | Terminal. |
 
 `Settled{outcome}` carries the reply kind the caller observed (`Success`,
 `TransferFailed`, `ExtractionFailed`, and so on). Version 1 `Released` reasons,
@@ -323,8 +323,8 @@ half-written capture.
 
 `UnknownEffect` is a first-class terminal, not an error swallowed silently. It
 records that an external action may have taken effect, at most once, and the
-runtime cannot prove whether it did, and it charges the reserved cost rather than
-under-charging. A caller that needs to retry after `UnknownEffect` must issue a
+runtime cannot prove whether it did, and it charges the whole reservation on
+every dimension rather than under-charging. A caller that needs to retry after `UnknownEffect` must issue a
 new idempotency key; the same key replays the `UnknownEffect` outcome and never
 re-dispatches.
 
@@ -332,14 +332,16 @@ re-dispatches.
 
 Every state-changing request carries a caller-supplied idempotency key of 16 to
 64 bytes. The store holds an idempotency index keyed by a keyed hash over the
-tenant, the capability, and the key, mapping to the invocation id and a digest
-of the request. The digest covers the designated grant, so the same key sent
-under a different grant is an `IdempotencyConflict`.
+tenant, the capability, and the key, mapping to the invocation id and a binding
+of the request. The binding covers the caller's request digest and, bound by
+the store itself, the designated grant, session, target, and declared cost, so
+the same key sent under a different grant is an `IdempotencyConflict` whatever
+the caller's digest covers.
 
-- Same key, same request digest: the current or terminal outcome of the
+- Same key, same request binding: the current or terminal outcome of the
   existing invocation is returned. If it is still running, the caller observes
   `InProgress`. The call is never dispatched twice.
-- Same key, different request digest: `IdempotencyConflict`. The key is already
+- Same key, different request binding: `IdempotencyConflict`. The key is already
   bound to a different request and the contract refuses to reuse it.
 - A replay of an invocation that ended in `UnknownEffect` returns
   `UnknownEffect`; retrying requires a new key.

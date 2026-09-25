@@ -18,14 +18,19 @@ ignore = []
 # slice adds the licenses its new dependencies need, with the dependency
 # that needs them.
 # - MIT, Apache-2.0: rkyv and its support crates, the RustCrypto crates,
-#   secrecy, zeroize, snafu, getrandom, tempfile, rustix, toml, and their
-#   build dependencies (all offer MIT or Apache-2.0).
+#   secrecy, zeroize, snafu, getrandom, tempfile, rustix, toml, tokio,
+#   tracing, fjall and its storage crates, and their build dependencies
+#   (all offer MIT or Apache-2.0).
 # - BSD-3-Clause: ed25519-dalek, curve25519-dalek, and subtle (Ed25519
 #   tenant authentication: the daemon verifies, xenos signs).
 # - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
+# - 0BSD: varint-rs, the key-length encoding inside lsm-tree (under fjall).
+# - BSL-1.0: xxhash-rust, the checksum inside fjall and lsm-tree.
 allow = [
+    "0BSD",
     "Apache-2.0",
     "BSD-3-Clause",
+    "BSL-1.0",
     "LicenseRef-PolyForm-Noncommercial-1.0.0",
     "MIT",
     "Unicode-3.0",
@@ -49,8 +54,24 @@ allow-wildcard-paths = true
 # its current release to dedupe a build tool; rejected. Retire this entry
 # when snafu-derive, munge_macro, and curve25519-dalek-derive release on
 # syn 3.
+#
+# WHY hashbrown: three copies meet in the custody store and none can be
+# aligned from this workspace. rkyv 0.8.18 (the wire format, syntheke)
+# requires hashbrown 0.17 through its `alloc` feature; fjall 3.1 depends on
+# dashmap 6, which requires hashbrown 0.14; lsm-tree 3.1 (inside fjall)
+# requires quick_cache 0.6, whose newest release requires hashbrown 0.16.
+# No fjall 3 release uses a newer dashmap or quick_cache, and holding rkyv
+# back would pin the wire validator below its current release. The copies
+# are ordinary hash-table code with no shared types across the boundary.
+# Retirement: the 0.16 entry retires when lsm-tree moves to quick_cache 0.7,
+# which already uses hashbrown 0.17. The 0.14 entry retires when fjall's
+# concurrent map reaches hashbrown 0.17; leaving dashmap 6 alone is not
+# enough, because the dashmap 7 release candidates use hashbrown 0.15, so
+# that move turns this entry into a 0.15 entry rather than removing it.
 skip = [
     { crate = "syn@2", reason = "proc-macro build dependency; snafu-derive, munge_macro, and curve25519-dalek-derive have no syn 3 release yet" },
+    { crate = "hashbrown@0.14", reason = "dashmap 6 under fjall 3.1; retire when fjall's map dependency is on hashbrown 0.17 (dashmap 7 rc uses 0.15)" },
+    { crate = "hashbrown@0.16", reason = "quick_cache 0.6 under lsm-tree 3.1; retire when lsm-tree moves to quick_cache 0.7 (hashbrown 0.17)" },
 ]
 
 [sources]

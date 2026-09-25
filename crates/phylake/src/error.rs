@@ -229,6 +229,189 @@ pub enum Error {
         #[snafu(implicit)]
         location: snafu::Location,
     },
+
+    /// The custody database failed a read, write, or commit.
+    #[snafu(display("custody database operation failed"))]
+    Database {
+        /// Underlying storage error (external, so named `error`).
+        #[snafu(source)]
+        error: fjall::Error,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// Creating or inspecting the store directory failed.
+    #[snafu(display("store directory {}: I/O failure", path.display()))]
+    StoreIo {
+        /// Directory that was accessed.
+        path: PathBuf,
+        /// Underlying I/O error (external, so named `error`).
+        #[snafu(source)]
+        error: io::Error,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// Creating a store at a path that is not an empty directory.
+    #[snafu(display("store path {} is not an empty directory", path.display()))]
+    StoreExists {
+        /// Path that was requested.
+        path: PathBuf,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// Opening a store at a path that holds none, or holds an incomplete one.
+    #[snafu(display("no custody store at {} ({missing} is absent)", path.display()))]
+    StoreMissing {
+        /// Path that was opened.
+        path: PathBuf,
+        /// The first part found missing.
+        missing: &'static str,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A plaintext `meta` field has an impossible value.
+    #[snafu(display("store metadata field {field} is malformed"))]
+    MetaMalformed {
+        /// The field.
+        field: &'static str,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The store was written by a newer schema than this build reads. It
+    /// is never opened optimistically.
+    #[snafu(display("store schema version {found} is newer than supported version {supported}"))]
+    SchemaTooNew {
+        /// Version recorded in the store.
+        found: u32,
+        /// Version this build writes.
+        supported: u32,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The store was written by an older schema and needs the `migrate`
+    /// command before this build opens it.
+    #[snafu(display("store schema version {found} requires migration to version {supported}"))]
+    MigrationRequired {
+        /// Version recorded in the store.
+        found: u32,
+        /// Version this build writes.
+        supported: u32,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A record could not be encoded.
+    #[snafu(display("record encoding failed"))]
+    Encode {
+        /// Underlying serializer error (external, so named `error`).
+        #[snafu(source)]
+        error: rkyv::rancor::Error,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// An opened record failed archive validation.
+    #[snafu(display("record in keyspace {keyspace} failed validation"))]
+    Decode {
+        /// Keyspace the record was read from.
+        keyspace: &'static str,
+        /// Underlying validator error (external, so named `error`).
+        #[snafu(source)]
+        error: rkyv::rancor::Error,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// Records that must agree do not: a reference points at nothing, or
+    /// a stored key has an impossible shape.
+    #[snafu(display("store records are inconsistent: {what}"))]
+    Inconsistent {
+        /// What was found wrong.
+        what: &'static str,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// An authorization decision or ledger computation failed, including a
+    /// lifecycle step the transition table forbids.
+    #[snafu(display("authorization rule refused the operation"))]
+    Authz {
+        /// The authorization crate's error.
+        #[snafu(source(from(epitrope::Error, Box::new)))]
+        source: Box<epitrope::Error>,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A settlement named an outcome that does not fit the invocation's
+    /// state: success before publish, or a failure after it.
+    #[snafu(display("settlement outcome does not fit invocation state {state}"))]
+    SettleMismatch {
+        /// The invocation's state.
+        state: syntheke::InvocationState,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The named invocation has no record.
+    #[snafu(display("invocation {invocation} has no record"))]
+    InvocationMissing {
+        /// The invocation.
+        invocation: syntheke::InvocationId,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The named tenant is not registered.
+    #[snafu(display("tenant {tenant} is not registered"))]
+    TenantMissing {
+        /// The tenant.
+        tenant: syntheke::TenantId,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A record with the caller-chosen id already exists with different
+    /// content.
+    #[snafu(display("a different {what} already exists under that id"))]
+    Conflict {
+        /// The kind of record.
+        what: &'static str,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A failpoint simulated a crash at a lifecycle boundary.
+    #[snafu(display("injected crash {phase} {boundary}"))]
+    InjectedCrash {
+        /// The boundary.
+        boundary: crate::store::Boundary,
+        /// Before or after the commit.
+        phase: crate::store::Phase,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
 }
 
 /// Result alias for `phylake` operations.

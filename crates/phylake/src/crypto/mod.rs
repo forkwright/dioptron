@@ -39,6 +39,8 @@ pub use seal::{
 };
 pub use wrap::{WRAPPED_KEY_LEN, WRAPPED_KEY_VERSION};
 
+pub(crate) use seal::seal_with;
+
 /// Length of every symmetric key and subkey in bytes.
 pub const KEY_LEN: usize = 32;
 
@@ -180,6 +182,11 @@ impl Keyspace {
 pub struct BlobAddress([u8; 32]);
 
 impl BlobAddress {
+    /// An address read back from a sealed record.
+    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
     /// The address bytes.
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {

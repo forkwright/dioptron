@@ -9,13 +9,17 @@ repository.workspace = true
 
 [dependencies]
 chacha20poly1305.workspace = true
+epitrope.workspace = true
+fjall.workspace = true
 getrandom.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
+rkyv.workspace = true
 rustix = { workspace = true, features = ["std", "fs", "process"] }
 secrecy.workspace = true
 sha2.workspace = true
 snafu.workspace = true
+syntheke.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]

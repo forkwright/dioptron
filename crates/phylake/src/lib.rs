@@ -8,15 +8,18 @@
 //! transaction so that restart recovery can settle or release each
 //! invocation exactly once.
 //!
-//! This slice provides the encryption layer (`docs/design/custody-store.md`,
-//! "Encryption at rest"): [`keyfile`] loads and creates the root key, and
-//! [`crypto`] derives subkeys, seals records, wraps tenant data keys,
-//! computes keyed blob addresses, and checks the key-check value that gates
-//! a locked start. The keyspaces themselves land in a later slice.
+//! [`keyfile`] loads and creates the root key; [`crypto`] derives subkeys,
+//! seals records, wraps tenant data keys, computes keyed blob addresses,
+//! and checks the key-check value that gates a locked start
+//! (`docs/design/custody-store.md`, "Encryption at rest"). [`store`] holds
+//! the keyspaces, the invocation transactions B1 through B5, failure
+//! injection, and restart recovery.
 #![deny(missing_docs)]
 
 pub mod crypto;
 mod error;
 pub mod keyfile;
+pub mod store;
 
 pub use error::{Error, Result};
+pub use store::{Store, StoreOptions};
