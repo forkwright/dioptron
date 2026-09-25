@@ -104,7 +104,7 @@ impl Terminal {
     /// `None` for a success.
     ///
     /// For `Released` this is a reply mapping, not the record: `Revoked`
-    /// reads as `Denied{GrantRevoked}`; `ProducerUnavailable`,
+    /// reads as `Denied{GrantRevoked}`, `Expired` as `Denied{GrantExpired}`; `ProducerUnavailable`,
     /// `DeadlineExceeded`, and `Cancelled` as themselves; `Abandoned`,
     /// which no caller ever received a reply for, as `Cancelled`, the
     /// contract's outcome for a call that ended before any effect. The
@@ -116,6 +116,7 @@ impl Terminal {
             Self::UnknownEffect => Some(Failure::UnknownEffect),
             Self::Released { reason } => Some(match reason {
                 ReleaseReason::Revoked => Failure::denied(DenyCode::GrantRevoked),
+                ReleaseReason::Expired => Failure::denied(DenyCode::GrantExpired),
                 ReleaseReason::ProducerUnavailable => Failure::ProducerUnavailable,
                 ReleaseReason::DeadlineExceeded => Failure::DeadlineExceeded,
                 // WHY a wildcard: `ReleaseReason` is non-exhaustive; a
@@ -393,6 +394,10 @@ record! {
         /// Why the reservation was released; present exactly when `state`
         /// is `Released`.
         pub(crate) release_reason: Option<ReleaseReason>,
+        /// The designated grant, when the writer had it in hand.
+        pub(crate) grant: Option<GrantId>,
+        /// The scope an audit read applied.
+        pub(crate) audit_scope: Option<AuditScope>,
     }
 }
 

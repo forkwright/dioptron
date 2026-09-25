@@ -1,7 +1,8 @@
 //! Idempotency claims, standalone audit entries, and the logical digest.
 
 use syntheke::{
-    AuditSeq, Capability, Failure, GrantId, InvocationState, OutcomeKind, SessionId, TenantId,
+    AuditScope, AuditSeq, Capability, Failure, GrantId, InvocationState, OutcomeKind, SessionId,
+    TenantId,
 };
 
 use crate::Error;
@@ -169,12 +170,15 @@ fn record_audit_appends_refusals_and_completions_in_sequence() {
         AuditOutcome::Refused(Failure::NotFoundOrDenied),
     );
     refused.session = Some(S_AGENT);
-    let completed = AuditNote::new(
+    refused.grant = Some(G_AGENT);
+    let mut completed = AuditNote::new(
         AGENT,
         invocation(0x06),
         Capability::AuditQuery,
         AuditOutcome::Completed(None),
     );
+    completed.grant = Some(OTHER_GRANT);
+    completed.audit_scope = Some(AuditScope::OwnAndOwnedSessions);
 
     let first = store.record_audit(&refused).expect("audit");
     let second = store.record_audit(&completed).expect("audit");
@@ -198,6 +202,8 @@ fn record_audit_appends_refusals_and_completions_in_sequence() {
                 event.record.state,
                 event.record.outcome,
                 event.record.session,
+                event.grant,
+                event.audit_scope,
             )
         })
         .collect();
@@ -207,11 +213,20 @@ fn record_audit_appends_refusals_and_completions_in_sequence() {
             (
                 InvocationState::Denied,
                 OutcomeKind::NotFoundOrDenied,
-                Some(S_AGENT)
+                Some(S_AGENT),
+                Some(G_AGENT),
+                None,
             ),
-            (InvocationState::Settled, OutcomeKind::Success, None),
+            (
+                InvocationState::Settled,
+                OutcomeKind::Success,
+                None,
+                Some(OTHER_GRANT),
+                Some(AuditScope::OwnAndOwnedSessions),
+            ),
         ],
-        "a refusal is Denied with its failure; a completion is Settled"
+        "a refusal is Denied with its failure; a completion is Settled; each \
+         keeps the grant it named and an audit read the scope it applied"
     );
 }
 

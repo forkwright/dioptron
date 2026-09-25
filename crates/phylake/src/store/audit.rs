@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use fjall::{Readable, Snapshot};
 use snafu::{OptionExt as _, ResultExt as _};
 use syntheke::{
-    AuditRecord, AuditScope, AuditSeq, Capability, InvocationId, InvocationState, OutcomeKind,
-    ReleaseReason, SessionId, TenantId,
+    AuditRecord, AuditScope, AuditSeq, Capability, GrantId, InvocationId, InvocationState,
+    OutcomeKind, ReleaseReason, SessionId, TenantId,
 };
 
 use super::codec::StoredRecord as _;
@@ -35,6 +35,8 @@ pub(crate) struct AuditEntry {
     state: InvocationState,
     outcome: OutcomeKind,
     release_reason: Option<ReleaseReason>,
+    grant: Option<GrantId>,
+    audit_scope: Option<AuditScope>,
 }
 
 impl AuditEntry {
@@ -54,6 +56,8 @@ impl AuditEntry {
             state,
             outcome,
             release_reason: None,
+            grant: None,
+            audit_scope: None,
         }
     }
 
@@ -82,6 +86,18 @@ impl AuditEntry {
         self.session = session;
         self
     }
+
+    /// The same entry, authorized under the designated `grant`.
+    pub(crate) const fn under_grant(mut self, grant: Option<GrantId>) -> Self {
+        self.grant = grant;
+        self
+    }
+
+    /// The same entry, reading audit under `scope`.
+    pub(crate) const fn with_audit_scope(mut self, scope: Option<AuditScope>) -> Self {
+        self.audit_scope = scope;
+        self
+    }
 }
 
 /// An audit record as stored: the contract's record plus the release
@@ -94,6 +110,12 @@ pub struct AuditEvent {
     /// Why the reservation was released; present exactly when
     /// `record.state` is `Released`.
     pub release_reason: Option<ReleaseReason>,
+    /// The grant the call designated, on entries written with it in hand:
+    /// refusals, audit reads, grant issues, and capture terminals.
+    pub grant: Option<GrantId>,
+    /// The audit scope an audit read applied; present exactly on
+    /// `AuditQuery` entries that read.
+    pub audit_scope: Option<AuditScope>,
 }
 
 /// An audit read across tenants, as an `AuditQuery` needs it.
@@ -162,6 +184,8 @@ impl Store {
                 state: entry.state,
                 outcome: entry.outcome,
                 release_reason: entry.release_reason,
+                grant: entry.grant,
+                audit_scope: entry.audit_scope,
             },
         )?;
         Ok(seq)
@@ -327,6 +351,8 @@ impl Store {
                         outcome: entry.outcome,
                     },
                     release_reason: entry.release_reason,
+                    grant: entry.grant,
+                    audit_scope: entry.audit_scope,
                 });
             }
         }

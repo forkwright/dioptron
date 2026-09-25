@@ -14,8 +14,8 @@ use fjall::Readable as _;
 use sha2::{Digest as _, Sha256};
 use snafu::ResultExt as _;
 use syntheke::{
-    AuditSeq, Capability, Failure, GrantId, IdempotencyKey, InvocationId, InvocationState,
-    SessionId, TenantId,
+    AuditScope, AuditSeq, Capability, Failure, GrantId, IdempotencyKey, InvocationId,
+    InvocationState, SessionId, TenantId,
 };
 
 use super::audit::AuditEntry;
@@ -117,10 +117,14 @@ pub struct AuditNote {
     pub session: Option<SessionId>,
     /// How the call ended.
     pub outcome: AuditOutcome,
+    /// The grant the call designated.
+    pub grant: Option<GrantId>,
+    /// The audit scope an `AuditQuery` read applied.
+    pub audit_scope: Option<AuditScope>,
 }
 
 impl AuditNote {
-    /// A note with no session.
+    /// A note with no session, grant, or audit scope.
     #[must_use]
     pub const fn new(
         tenant: TenantId,
@@ -134,6 +138,8 @@ impl AuditNote {
             capability,
             session: None,
             outcome,
+            grant: None,
+            audit_scope: None,
         }
     }
 }
@@ -205,7 +211,9 @@ impl Store {
                 Terminal::Settled { failure },
             ),
         }
-        .in_session(note.session);
+        .in_session(note.session)
+        .under_grant(note.grant)
+        .with_audit_scope(note.audit_scope);
         let mut tx = self.write_tx();
         let seq = self.append_audit(&mut tx, entry)?;
         self.commit(tx, None)?;

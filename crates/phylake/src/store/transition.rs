@@ -53,7 +53,8 @@ impl Store {
                     what: "terminal state without a matching terminal record",
                 })?;
             let entry = AuditEntry::terminal(record.tenant, record.id, record.capability, terminal)
-                .in_session(record.session);
+                .in_session(record.session)
+                .under_grant(record.grant_chain.first().copied());
             self.append_audit(&mut tx, entry)?;
         }
         self.put_invocation(&mut tx, &record)?;

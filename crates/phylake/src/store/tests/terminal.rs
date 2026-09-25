@@ -49,7 +49,7 @@ fn transfer(store: &Store, byte: u8) {
 /// independently of [`Terminal::outcome`].
 const fn expected_reply(reason: ReleaseReason) -> OutcomeKind {
     match reason {
-        ReleaseReason::Revoked => OutcomeKind::Denied,
+        ReleaseReason::Revoked | ReleaseReason::Expired => OutcomeKind::Denied,
         ReleaseReason::ProducerUnavailable => OutcomeKind::ProducerUnavailable,
         ReleaseReason::DeadlineExceeded => OutcomeKind::DeadlineExceeded,
         _ => OutcomeKind::Cancelled,
@@ -96,6 +96,11 @@ fn check_release(reason: ReleaseReason, dispatched: bool, byte: u8) {
         expected_reply(reason),
         "{case}: audited reply kind"
     );
+    assert_eq!(
+        audit.grant,
+        Some(G_AGENT),
+        "{case}: the terminal entry names the designated grant"
+    );
 
     let Begin::Replayed(replayed) = begin(&store, byte) else {
         panic!("{case}: expected a replay");
@@ -114,6 +119,7 @@ fn release_from_intent_records_each_reason_exactly() {
         (2, ReleaseReason::Revoked),
         (3, ReleaseReason::Cancelled),
         (4, ReleaseReason::DeadlineExceeded),
+        (5, ReleaseReason::Expired),
     ] {
         check_release(reason, false, byte);
     }
@@ -126,6 +132,7 @@ fn release_from_dispatch_records_each_reason_exactly() {
         (2, ReleaseReason::Cancelled),
         (3, ReleaseReason::DeadlineExceeded),
         (4, ReleaseReason::ProducerUnavailable),
+        (5, ReleaseReason::Expired),
     ] {
         check_release(reason, true, byte);
     }
@@ -152,6 +159,14 @@ fn abandoned_and_cancelled_releases_stay_distinct() {
         .reply_failure(),
         Some(Failure::denied(DenyCode::GrantRevoked)),
         "revoked"
+    );
+    assert_eq!(
+        Terminal::Released {
+            reason: ReleaseReason::Expired
+        }
+        .reply_failure(),
+        Some(Failure::denied(DenyCode::GrantExpired)),
+        "expired reads as expiry, not revocation"
     );
     assert_eq!(
         Terminal::UnknownEffect.reply_failure(),
@@ -248,13 +263,30 @@ fn same_key_under_another_grant_conflicts_whatever_the_digest() {
         .begin(&Intent::new(invocation(2), other_target, &key, DIGEST))
         .expect("begin");
     assert_eq!(retargeted, Begin::Conflict, "another target");
+    assert_eq!(dump(&store), before, "a conflict writes nothing");
+}
+
+#[test]
+fn same_request_with_another_declared_cost_replays() {
+    let fixture = Fixture::new();
+    let store = fixture.seeded();
+    persist(&store, 1);
+    let before = dump(&store);
+    let key = idem(1);
     let mut bigger = capture(G_AGENT);
-    bigger.declared.fetches = DECLARED.fetches.saturating_add(1);
-    let costlier = store
+    bigger.declared.wall_time_ms = DECLARED.wall_time_ms.saturating_add(1);
+    bigger.declared.bytes_transferred = DECLARED.bytes_transferred.saturating_sub(1);
+
+    let replayed = store
         .begin(&Intent::new(invocation(2), bigger, &key, DIGEST))
         .expect("begin");
-    assert_eq!(costlier, Begin::Conflict, "another declared cost");
-    assert_eq!(dump(&store), before, "a conflict writes nothing");
+
+    let Begin::Replayed(status) = replayed else {
+        panic!("a derived cost does not decide identity: {replayed:?}");
+    };
+    assert_eq!(status.id, invocation(1), "the first attempt's invocation");
+    assert_eq!(status.reserved, DECLARED, "its reservation stands");
+    assert_eq!(dump(&store), before, "a replay writes nothing");
 }
 
 #[test]
