@@ -28,6 +28,8 @@ This is a curated, non-exhaustive start-here list. The
 - [docs/design/topology.md](docs/design/topology.md)  -  Layer topology
 - [docs/design/tenancy.md](docs/design/tenancy.md)  -  Multi-tenant model
 - [docs/design/decisions.md](docs/design/decisions.md)  -  Resolved technical decisions
+- [docs/design/capability-contract.md](docs/design/capability-contract.md)  -  Phase 01 capability and wire contract
+- [docs/design/custody-store.md](docs/design/custody-store.md)  -  D5 durable-storage and encryption decision
 - [docs/design/rendering-completeness.md](docs/design/rendering-completeness.md)  -  D17.9 evidence floor
 - [docs/design/script-band-evaluation.md](docs/design/script-band-evaluation.md)  -  D4 evaluation and v1 scope
 - [docs/design/ingest-rules-taxonomy.md](docs/design/ingest-rules-taxonomy.md)  -  D7/D8 taxonomy and implementation plan

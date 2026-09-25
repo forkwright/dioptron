@@ -1,0 +1,16 @@
+[meta]
+name = "neg_incompatible_version"
+kind = "negative"
+clause = "An incompatible version range ends the handshake before authentication."
+
+[request]
+frame = "ClientHello"
+version_min = 99
+version_max = 99
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+client_nonce = "00000000000000000000000000000001"
+
+[expected]
+outcome = "Incompatible"
+authenticated = false
+connection = "closed"

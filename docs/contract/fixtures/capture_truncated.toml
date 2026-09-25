@@ -1,0 +1,23 @@
+[meta]
+name = "capture_truncated"
+kind = "positive"
+clause = "The contract makes truncation explicit: the capture reply carries a truncation flag."
+
+[request]
+capability = "Capture"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+session = "01j8k7r3v9zq4n5m6p7s8ses0a"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+idempotency_key = "b1b2c3d4e5f60718293a4b5c6d7e8f90"
+target = "https://example.com/long-article"
+max_output_bytes = 4096
+max_transfer_bytes = 1048576
+
+[expected]
+outcome = "Success"
+artifact_ref = "01j8k7r3v9zq4n5m6p7s8art0b"
+source_schema_id = "zetesis.evidence.v1"
+truncated = true
+output_bytes = 4096
+final_state = "Settled"

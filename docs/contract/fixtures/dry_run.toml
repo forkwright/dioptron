@@ -1,0 +1,21 @@
+[meta]
+name = "dry_run"
+kind = "positive"
+clause = "Its only product is the returned plan; two identical dry-runs leave the store byte for byte unchanged and call the producer zero times."
+
+[request]
+capability = "Capture"
+mode = "DryRun"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+session = "01j8k7r3v9zq4n5m6p7s8ses0a"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+target = "https://example.com/article"
+max_output_bytes = 32768
+
+[expected]
+outcome = "Plan"
+final_state = "Planned"
+durable_writes = 0
+producer_calls = 0
+plan_cost_fetches = 1
+plan_grant_chain = ["01j8k7r3v9zq4n5m6p7s8grn0b", "01j8k7r3v9zq4n5m6p7s8grn0a"]

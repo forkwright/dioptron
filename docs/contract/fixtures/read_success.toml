@@ -1,0 +1,18 @@
+[meta]
+name = "read_success"
+kind = "positive"
+clause = "Read returns stored bytes in bounded chunks by offset and length."
+
+[request]
+capability = "Read"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+artifact_ref = "01j8k7r3v9zq4n5m6p7s8art0a"
+offset = 0
+len = 4096
+
+[expected]
+outcome = "Success"
+offset = 0
+len = 4096
+envelope_verbatim = true
