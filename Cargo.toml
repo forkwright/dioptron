@@ -1,0 +1,80 @@
+[workspace]
+# WHY resolver 3: MSRV-aware resolution keeps new dependencies within
+# rust-version below.
+resolver = "3"
+members = [
+    "crates/syntheke",
+    "crates/epitrope",
+    "crates/phylake",
+    "crates/dioptron",
+    "crates/xenos",
+]
+
+[workspace.package]
+version = "0.1.6"
+edition = "2024"
+# WHY 1.97 and not the edition floor (1.85): the MSRV claims only what CI
+# builds. The gate runs the rust-toolchain.toml channel (1.97.1) and no
+# separate MSRV job exists, so a lower value would be an untested promise.
+# fjall 3, the planned storage dependency, already requires 1.90.
+rust-version = "1.97"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/forkwright/dioptron"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+# NOTE: missing_docs is denied per library crate with #![deny(missing_docs)]
+# (kanon RUST.md), which leaves binary targets exempt.
+
+[workspace.lints.clippy]
+# Style
+pedantic = { level = "warn", priority = -1 }
+
+# Safety: zero tolerance
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "warn"
+as_conversions = "warn"
+arithmetic_side_effects = "warn"
+string_slice = "warn"
+
+# Quality: zero tolerance
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+await_holding_lock = "deny"
+missing_assert_message = "deny"
+tests_outside_test_module = "deny"
+
+# Quality: warnings (sometimes justified with #[expect])
+explicit_into_iter_loop = "warn"
+fallible_impl_from = "warn"
+fn_params_excessive_bools = "warn"
+implicit_clone = "warn"
+large_enum_variant = "warn"
+large_types_passed_by_value = "warn"
+map_err_ignore = "warn"
+match_wildcard_for_single_variants = "warn"
+needless_for_each = "warn"
+rc_mutex = "warn"
+redundant_clone = "warn"
+string_add = "warn"
+trait_duplication_in_bounds = "warn"
+# NOTE: the kanon RUST.md sample spells this `trivially_copy_passable_by_ref`,
+# which clippy rejects as unknown (and unknown_lints ignores -D warnings).
+trivially_copy_pass_by_ref = "warn"
+unused_self = "warn"
+inefficient_to_string = "warn"
+
+# WHY no [workspace.dependencies] yet: the skeleton crates use no external
+# crate. Each implementation slice declares the dependencies it introduces,
+# with its justification, in the same change.
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
