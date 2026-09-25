@@ -24,9 +24,13 @@ ignore = []
 # - BSD-3-Clause: ed25519-dalek, curve25519-dalek, and subtle (Ed25519
 #   tenant authentication in xenos).
 # - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
+# - 0BSD: varint-rs, the key-length encoding inside lsm-tree (under fjall).
+# - BSL-1.0: xxhash-rust, the checksum inside fjall and lsm-tree.
 allow = [
+    "0BSD",
     "Apache-2.0",
     "BSD-3-Clause",
+    "BSL-1.0",
     "LicenseRef-PolyForm-Noncommercial-1.0.0",
     "MIT",
     "Unicode-3.0",

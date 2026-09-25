@@ -43,6 +43,7 @@ mod tests;
 
 use std::collections::HashMap;
 use std::fmt;
+use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -349,7 +350,7 @@ fn open_database(path: &Path) -> Result<SingleWriterTxDatabase> {
 }
 
 impl Entropy for Box<dyn Entropy + Send> {
-    fn fill(&mut self, dest: &mut [u8]) -> Result<()> {
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
         (**self).fill(dest)
     }
 }

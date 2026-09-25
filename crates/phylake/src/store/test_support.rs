@@ -4,6 +4,7 @@
 #![expect(clippy::expect_used, reason = "test helpers must fail loudly")]
 
 use std::collections::BTreeSet;
+use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
@@ -72,19 +73,19 @@ pub(crate) struct CountingEntropy;
 static ENTROPY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 impl Entropy for CountingEntropy {
-    fn fill(&mut self, dest: &mut [u8]) -> Result<()> {
-        for chunk in dest.chunks_mut(32) {
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
+        let mut drawn = Vec::with_capacity(dest.len());
+        while drawn.len() < dest.len() {
             let counter = ENTROPY_COUNTER.fetch_add(1, Ordering::SeqCst);
             let block: [u8; 32] = Sha256::new()
                 .chain_update(b"phylake-test-entropy")
                 .chain_update(counter.to_le_bytes())
                 .finalize()
                 .into();
-            for (byte, value) in chunk.iter_mut().zip(block) {
-                *byte = value;
-            }
+            drawn.extend_from_slice(&block);
         }
-        Ok(())
+        drawn.truncate(dest.len());
+        Ok(dest.write_copy_of_slice(&drawn))
     }
 }
 

@@ -238,15 +238,7 @@ impl Store {
         if let Some(idem) =
             self.get::<IdemRecord, _>(&tx, slot::IDEM, &idem_key, &[tenant_keys.meta()])?
         {
-            if idem.request_digest != intent.request_digest {
-                return Ok(Begin::Conflict);
-            }
-            let record =
-                self.invocation_record(&tx, idem.invocation)?
-                    .context(InconsistentSnafu {
-                        what: "idempotency entry names a missing invocation",
-                    })?;
-            return Ok(Begin::Replayed(InvocationStatus::from(&record)));
+            return self.replay(&tx, intent, &idem);
         }
         ensure!(
             self.invocation_record(&tx, intent.invocation)?.is_none(),
@@ -259,28 +251,63 @@ impl Store {
             };
             authorize(&view, &intent.authz, &*self.clock).context(AuthzSnafu)?
         };
-        let (chain, reservation) = match decision {
-            Decision::Allowed { chain, reservation } => (chain, reservation),
-            refused => {
-                let failure = refused.refusal().unwrap_or(Failure::NotFoundOrDenied);
-                let entry = AuditEntry::new(
-                    tenant,
-                    intent.invocation,
-                    intent.authz.capability,
-                    InvocationState::Denied,
-                    failure.kind(),
-                )
-                .in_session(intent.authz.session);
-                let audit_seq = self.append_audit(&mut tx, entry)?;
-                self.commit(tx, None)?;
-                return Ok(Begin::Refused { failure, audit_seq });
-            }
+        let Decision::Allowed { chain, reservation } = decision else {
+            let failure = decision.refusal().unwrap_or(Failure::NotFoundOrDenied);
+            return self.refuse(tx, intent, failure);
         };
-        let ledgers = self.debit_reservation(&mut tx, &reservation)?;
+        let record = self.intent_record(&mut tx, intent, chain, &reservation)?;
+        self.put_invocation(&mut tx, &record)?;
+        let idem = IdemRecord {
+            invocation: intent.invocation,
+            request_digest: intent.request_digest,
+        };
+        self.put(&mut tx, slot::IDEM, &idem_key, tenant_keys.meta(), &idem)?;
+        self.commit(tx, Some(Boundary::PersistIntent))?;
+        Ok(Begin::Persisted(InvocationStatus::from(&record)))
+    }
+
+    /// The answer to a request whose idempotency key is already bound: the
+    /// stored invocation for the same digest, a conflict for another.
+    fn replay(&self, tx: &WriteTx<'_>, intent: &Intent<'_>, idem: &IdemRecord) -> Result<Begin> {
+        if idem.request_digest != intent.request_digest {
+            return Ok(Begin::Conflict);
+        }
+        let record = self
+            .invocation_record(tx, idem.invocation)?
+            .context(InconsistentSnafu {
+                what: "idempotency entry names a missing invocation",
+            })?;
+        Ok(Begin::Replayed(InvocationStatus::from(&record)))
+    }
+
+    /// Commits the audit entry of a refused call, and nothing else.
+    fn refuse(&self, mut tx: WriteTx<'_>, intent: &Intent<'_>, failure: Failure) -> Result<Begin> {
+        let entry = AuditEntry::new(
+            intent.authz.tenant,
+            intent.invocation,
+            intent.authz.capability,
+            InvocationState::Denied,
+            failure.kind(),
+        )
+        .in_session(intent.authz.session);
+        let audit_seq = self.append_audit(&mut tx, entry)?;
+        self.commit(tx, None)?;
+        Ok(Begin::Refused { failure, audit_seq })
+    }
+
+    /// Debits the reservation and builds the B1 invocation record.
+    fn intent_record(
+        &self,
+        tx: &mut WriteTx<'_>,
+        intent: &Intent<'_>,
+        chain: Vec<GrantId>,
+        reservation: &ReservationPlan,
+    ) -> Result<InvocationRecord> {
+        let ledgers = self.debit_reservation(tx, reservation)?;
         let now = self.now();
-        let record = InvocationRecord {
+        Ok(InvocationRecord {
             id: intent.invocation,
-            tenant,
+            tenant: intent.authz.tenant,
             capability: intent.authz.capability,
             session: intent.authz.session,
             grant_chain: chain,
@@ -297,15 +324,7 @@ impl Store {
             revoked_after_effect: false,
             created_at: now,
             updated_at: now,
-        };
-        self.put_invocation(&mut tx, &record)?;
-        let idem = IdemRecord {
-            invocation: intent.invocation,
-            request_digest: intent.request_digest,
-        };
-        self.put(&mut tx, slot::IDEM, &idem_key, tenant_keys.meta(), &idem)?;
-        self.commit(tx, Some(Boundary::PersistIntent))?;
-        Ok(Begin::Persisted(InvocationStatus::from(&record)))
+        })
     }
 
     /// Debits the reservation from every ledger it names.

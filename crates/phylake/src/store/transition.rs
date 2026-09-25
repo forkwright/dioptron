@@ -322,9 +322,7 @@ impl Store {
 /// not run, which is what a cancellation before any effect means.
 const fn release_failure(reason: ReleaseReason) -> Failure {
     match reason {
-        ReleaseReason::Revoked => Failure::Denied {
-            code: DenyCode::GrantRevoked,
-        },
+        ReleaseReason::Revoked => Failure::denied(DenyCode::GrantRevoked),
         ReleaseReason::ProducerUnavailable => Failure::ProducerUnavailable,
         ReleaseReason::DeadlineExceeded => Failure::DeadlineExceeded,
         _ => Failure::Cancelled,

@@ -2,8 +2,8 @@
 
 use epitrope::{GrantView as _, IssueContext, LedgerView as _, Origin};
 use syntheke::{
-    Capability, DenyCode, Failure, GrantId, GrantIssueRequest, InvocationState, OutcomeKind,
-    SessionId, SessionScope, TenantId, Timestamp,
+    Capability, DenyCode, Failure, GrantId, GrantIssueRequest, InvocationState, NarrowingAxis,
+    OutcomeKind, SessionId, SessionScope, TenantId, Timestamp,
 };
 
 use crate::Error;
@@ -125,9 +125,7 @@ fn broader_child_is_refused_and_audited() {
     assert_eq!(
         outcome,
         IssueOutcome::Refused {
-            failure: Failure::Denied {
-                code: DenyCode::NarrowingViolation
-            }
+            failure: Failure::narrowing(NarrowingAxis::Ceilings)
         },
         "11 fetches exceed the parent's 10"
     );
@@ -189,9 +187,7 @@ fn revocation_invalidates_the_subtree_and_is_idempotent() {
     let plan = store.plan(&capture(G_AGENT)).expect("plan");
     assert_eq!(
         plan.refusal,
-        Some(Failure::Denied {
-            code: DenyCode::GrantRevoked
-        }),
+        Some(Failure::denied(DenyCode::GrantRevoked)),
         "a revoked root invalidates the child"
     );
 

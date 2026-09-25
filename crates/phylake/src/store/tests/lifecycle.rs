@@ -104,7 +104,25 @@ fn happy_path_runs_b1_through_b5() {
         all(ACTUAL),
         "the remainder is released"
     );
+    let terminal = store
+        .audit_records(AGENT, None, 100)
+        .expect("audit")
+        .into_iter()
+        .filter(|record| record.invocation == invocation(1))
+        .collect::<Vec<_>>();
+    assert_eq!(terminal.len(), 1, "one audit entry, at the terminal state");
+    assert_eq!(
+        terminal.first().map(|r| r.state),
+        Some(InvocationState::Settled),
+        "state"
+    );
+}
 
+#[test]
+fn published_artifact_reads_whole_and_in_chunks() {
+    let fixture = Fixture::new();
+    let store = fixture.seeded();
+    publish(&store, 1);
     let info = store
         .artifact(artifact(0x71))
         .expect("read")
@@ -148,18 +166,6 @@ fn happy_path_runs_b1_through_b5() {
         "the session index lists it"
     );
     assert!(!page.more, "one result");
-    let terminal = store
-        .audit_records(AGENT, None, 100)
-        .expect("audit")
-        .into_iter()
-        .filter(|record| record.invocation == invocation(1))
-        .collect::<Vec<_>>();
-    assert_eq!(terminal.len(), 1, "one audit entry, at the terminal state");
-    assert_eq!(
-        terminal.first().map(|r| r.state),
-        Some(InvocationState::Settled),
-        "state"
-    );
 }
 
 #[test]
@@ -331,9 +337,7 @@ fn release_returns_the_whole_reservation() {
     );
     assert_eq!(
         status.failure,
-        Some(Failure::Denied {
-            code: DenyCode::GrantRevoked
-        }),
+        Some(Failure::denied(DenyCode::GrantRevoked)),
         "a revoked release reads as a revoked grant"
     );
     assert_eq!(
@@ -443,9 +447,7 @@ fn refused_call_writes_only_its_audit_entry() {
     };
     assert_eq!(
         failure,
-        Failure::Denied {
-            code: DenyCode::CapabilityNotGranted
-        },
+        Failure::denied(DenyCode::CapabilityNotGranted),
         "the agent grant does not confer Ingest"
     );
     let after = dump(&store);
