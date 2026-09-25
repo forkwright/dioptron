@@ -218,6 +218,7 @@ dependencies = [
  "getrandom",
  "hkdf",
  "hmac",
+ "rustix",
  "secrecy",
  "sha2",
  "snafu",

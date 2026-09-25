@@ -21,8 +21,9 @@ pub enum Error {
     RootKeyMissing {
         /// Path that was opened.
         path: PathBuf,
-        /// Underlying I/O error.
-        source: io::Error,
+        /// Underlying I/O error (external, so named `error` per kanon RUST.md).
+        #[snafu(source)]
+        error: io::Error,
         /// Source location where the error was raised.
         #[snafu(implicit)]
         location: snafu::Location,
@@ -33,8 +34,42 @@ pub enum Error {
     RootKeyIo {
         /// Path that was accessed.
         path: PathBuf,
-        /// Underlying I/O error.
-        source: io::Error,
+        /// Underlying I/O error (external, so named `error` per kanon RUST.md).
+        #[snafu(source)]
+        error: io::Error,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The root key path's final component is a symbolic link. The key file
+    /// is opened with `O_NOFOLLOW`, so a link planted at the key path cannot
+    /// redirect the load to another file.
+    #[snafu(display("root key path {} is a symbolic link", path.display()))]
+    RootKeySymlink {
+        /// Path that was opened.
+        path: PathBuf,
+        /// Underlying I/O error (`ELOOP`).
+        #[snafu(source)]
+        error: io::Error,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The root key file is owned by a user other than the process's
+    /// effective user.
+    #[snafu(display(
+        "root key file {} is owned by uid {owner}; expected the effective uid {euid}",
+        path.display()
+    ))]
+    RootKeyOwner {
+        /// Path that was opened.
+        path: PathBuf,
+        /// Owner uid of the file.
+        owner: u32,
+        /// Effective uid of this process.
+        euid: u32,
         /// Source location where the error was raised.
         #[snafu(implicit)]
         location: snafu::Location,
@@ -93,10 +128,11 @@ pub enum Error {
     },
 
     /// The operating system random source failed.
-    #[snafu(display("operating system random source failed: {source}"))]
+    #[snafu(display("operating system random source failed"))]
     Entropy {
-        /// Underlying `getrandom` error.
-        source: getrandom::Error,
+        /// Underlying `getrandom` error (external, so named `error`).
+        #[snafu(source)]
+        error: getrandom::Error,
         /// Source location where the error was raised.
         #[snafu(implicit)]
         location: snafu::Location,

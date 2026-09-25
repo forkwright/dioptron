@@ -81,6 +81,12 @@ chacha20poly1305 = { version = "0.11", default-features = false, features = ["al
 getrandom = { version = "0.4", default-features = false }
 hkdf = { version = "0.13", default-features = false }
 hmac = { version = "0.13", features = ["zeroize"] }
+# WHY rustix: opening the root key file with O_NOFOLLOW | O_NONBLOCK and
+# reading the effective uid need flags and a syscall that std exposes only
+# through raw `libc` constants or unsafe calls. rustix wraps both in safe
+# functions and is already in the lock file (tempfile depends on it), so it
+# adds no new crate version.
+rustix = { version = "1.1", default-features = false, features = ["std", "fs", "process"] }
 secrecy = "0.10"
 sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
 snafu = "0.9"
