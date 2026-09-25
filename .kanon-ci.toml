@@ -1,49 +1,73 @@
 # archetype: B
 # forge-only: false
-# spdx: AGPL-3.0-or-later
+# spdx: LicenseRef-PolyForm-Noncommercial-1.0.0
 
 # Dioptron local Kanon recipe.
 #
-# Dioptron is docs-only today (design phase) - no Cargo.toml, no crates,
-# nothing for the default Rust gate to exercise. This file records real
-# docs-phase checks for an environment where the private Kanon binary is
-# installed. It is not the current forge pipeline, GitHub workflow, or an
-# independently reported merge verdict.
+# The Rust workspace under crates/ landed with the Phase 01 S2 implementation
+# kickoff, so the pipeline runs the full Rust gate first and keeps the
+# specification-corpus stages after it. This file records the checks for an
+# environment where the private Kanon binary is installed. It is not the
+# GitHub workflow or an independently reported merge verdict.
 #
-# WHY the specification corpus is in the gate and not just README: at this
-# phase the corpus is the product, so leaving it outside CI is equivalent to
-# leaving product source outside CI. The validated set is derived from
-# docs/MANIFEST.toml rather than listed here, so a new canonical document
-# cannot be added without also being validated -- see ci/check-doc-manifest.py.
+# WHY explicit cargo stage blocks rather than the default-Rust-gate catalog:
+# the catalog commands omit --all-features and the doctest pass. The commands
+# below match .github/workflows/gate-attestation.yml and CLAUDE.md so a
+# Gate-Passed trailer and a green hosted gate attest the same stages.
 #
-# GitHub Actions is the active pull-request verifier. Its public hybrid gate
-# runs the mechanically public subset through
-# `py_compile`, `check-doc-refs.py`, and `check-doc-manifest.py --structure-only`:
-# Python syntax, identifier references, manifest completeness,
-# and negative structural fixtures. The two Kanon-owned judgments below
-# (`ci-config-lint`, `readme-lint`) and the manifest writing pass are available
+# WHY the specification corpus stays in the gate: the corpus remains part of
+# the product, and the validated set is derived from docs/MANIFEST.toml rather
+# than listed here, so a new canonical document cannot be added without also
+# being validated -- see ci/check-doc-manifest.py.
+#
+# GitHub Actions is the active pull-request verifier. The hybrid gate
+# (`gate / gate`) runs the cargo stages; docs.yml (`docs`) runs `py_compile`,
+# `check-doc-refs.py`, and `check-doc-manifest.py --structure-only` with its
+# negative fixtures. The Kanon-owned judgments below (`kanon lint`,
+# `ci-config-lint`, `readme-lint`) and the manifest writing pass are available
 # only to a caller that has Kanon installed. GitHub does not claim them, and a
 # green hosted gate is not evidence that they ran. Do not replace them with
 # hosted no-ops or a second writing linter.
-#
-# When dioptron grows the `crates/` workspace described in
-# docs/design/topology.md, replace `pipeline.stages` with the full Rust
-# gate:
-#
-#     stages = ["cargo fmt", "cargo check", "cargo clippy", "cargo nextest", "kanon lint"]
-#
-# Those stage names resolve against the default-Rust-gate catalog in
-# archeion::ci_config, so no [stages.<name>] blocks are required at that
-# point either.
 
 [pipeline]
 stages = [
+    "cargo fmt",
+    "cargo check",
+    "cargo clippy",
+    "cargo nextest",
+    "cargo doctest",
+    "kanon lint",
     "ci-config-lint",
     "readme-lint",
     "doc-refs-check",
     "docs-manifest-check",
     "docs-manifest-selftest",
 ]
+
+[stages."cargo fmt"]
+cmd = "cargo fmt --all -- --check"
+timeout_secs = 120
+
+[stages."cargo check"]
+cmd = "cargo check --workspace --all-targets --all-features"
+timeout_secs = 600
+
+[stages."cargo clippy"]
+cmd = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+timeout_secs = 900
+
+[stages."cargo nextest"]
+cmd = "cargo nextest run --workspace --all-features"
+timeout_secs = 1800
+
+# WHY a separate stage: nextest does not run doctests.
+[stages."cargo doctest"]
+cmd = "cargo test --workspace --doc --all-features"
+timeout_secs = 600
+
+[stages."kanon lint"]
+cmd = "kanon lint . --summary"
+timeout_secs = 300
 
 [stages.ci-config-lint]
 cmd = "kanon lint --workflow .kanon-ci.toml"
@@ -71,10 +95,12 @@ timeout_secs = 60
 cmd = "ci/check-doc-manifest.py --self-test"
 timeout_secs = 60
 
-# The generic 03f-e verifier assumes a Cargo pipeline and its default build
-# probe (`cargo check --all-features --tests`) cannot reproduce this docs-only
-# recipe. It remains disabled and emits no merge evidence. GitHub's exact-head
-# `gate / gate` result is the current verifier; enable a separate Kanon verifier
-# only after it has real, reproducible claims to check.
+# WHY still disabled: the generic 03f-e verifier's build probe
+# (`cargo check --all-features --tests`) can now run against this workspace,
+# but no Kanon verifier run has reproduced this recipe yet, and enabling it
+# changes the merge policy. GitHub's exact-head `gate / gate` result is the
+# current verifier; enable a Kanon verifier only after a recorded run shows
+# its claims reproduce on this workspace and the operator approves the
+# merge-policy change.
 [verifier]
 enabled = false

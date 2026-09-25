@@ -27,34 +27,30 @@ jobs:
     # repository-specific commands.
     uses: forkwright/.github/.github/workflows/hybrid-gate.yml@main
     with:
-      # Dioptron has no toolchain file or Cargo workspace. The reusable currently
-      # installs its Rust runner substrate unconditionally, so name the toolchain
-      # it needs rather than relying on implicit hosted-runner state.
-      rust_toolchain: stable
+      # rust_toolchain is intentionally omitted (reusable default ""): the
+      # reusable's setup-rust-toolchain step reads rust-toolchain.toml, which
+      # keeps the toolchain pin in one file.
 
-      # The reusable's four mandatory command slots retain Rust-era names. None
-      # is a no-op here: together they project every deterministic check that can
-      # run without the private Kanon binary from .kanon-ci.toml and its scripts.
-      fmt_cmd: >-
-        python3 -m py_compile
-        ci/check-doc-refs.py
-        ci/check-doc-manifest.py
-      check_cmd: "ci/check-doc-refs.py ."
-      clippy_cmd: "ci/check-doc-manifest.py --structure-only ."
-      nextest_cmd: "ci/check-doc-manifest.py --self-test --structure-only"
+      # WHY --all-features: later slices add feature-gated code (the daemon's
+      # failpoints feature). A default-features gate would never compile it.
+      # These strings match the local gate in CLAUDE.md and .kanon-ci.toml.
+      fmt_cmd: "cargo fmt --all -- --check"
+      check_cmd: "cargo check --workspace --all-targets --all-features"
+      clippy_cmd: "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+      nextest_cmd: "cargo nextest run --workspace --all-features"
+      doctest_cmd: "cargo test --workspace --doc --all-features"
 
-      # The private stages are deliberately absent, not silently translated:
-      # `kanon lint --workflow`, `kanon lint --writing README.md`, and the
-      # manifest-derived writing pass remain authoritative in .kanon-ci.toml.
+      # The specification-corpus checks moved to docs.yml (job `docs`), which
+      # runs on every PR. The private Kanon stages (`kanon lint --workflow`,
+      # `kanon lint --writing README.md`, and the manifest writing pass) remain
+      # authoritative in .kanon-ci.toml and are not claimed by this gate.
 
-      # WHY false: the specification corpus is the product in this design phase.
-      # A docs-only PR should be able to pass without a private trailer, but it
-      # must still run the lightweight reference and manifest checks above.
-      docs_only_exemption: false
-
-      # WHY empty: there is no Cargo workspace and no executable Rust doctest
-      # corpus. Unlike the four commands above, this optional slot is structurally
-      # inapplicable until implementation crates land.
-      doctest_cmd: ""
+      # WHY true now that a Cargo workspace exists: a docs-only diff (*.md,
+      # docs/**, llms.txt) cannot change what cargo builds, and docs.yml runs
+      # the corpus checks on every PR. The exemption is only sound while
+      # branch protection requires the `docs` context next to `gate / gate`;
+      # without it a docs-only PR merges on a gate that verified nothing.
+      docs_only_exemption: true
+      ai_attribution_check: true
       needs_fleet_repo_token: false
-      rust_cache_key: "dioptron-docs-gate"
+      rust_cache_key: "dioptron-gate"

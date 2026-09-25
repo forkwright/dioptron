@@ -1,0 +1,44 @@
+# WHY a separate workflow: the specification corpus stays part of the
+# product after the Cargo workspace lands, but the hybrid gate's command
+# slots now carry the Rust build. These are the public, deterministic
+# projection of the .kanon-ci.toml doc stages; the Kanon-only stages
+# (`ci-config-lint`, `readme-lint`, the manifest writing pass) are not
+# claimed here.
+name: Docs
+
+on:
+  # WHY no base-branch filter: stacked PRs have a feature branch as their base.
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compile the check scripts
+        run: python3 -m py_compile ci/check-doc-refs.py ci/check-doc-manifest.py
+
+      - name: Check identifier references
+        run: python3 ci/check-doc-refs.py .
+
+      - name: Check the documentation manifest
+        run: python3 ci/check-doc-manifest.py --structure-only .
+
+      # WHY: the manifest check above has never failed on the corpus as it
+      # stands; this replays negative fixtures to show that it can.
+      - name: Self-test the manifest check
+        run: python3 ci/check-doc-manifest.py --self-test --structure-only
