@@ -118,6 +118,15 @@ secrecy = "0.10"
 sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
 tempfile = "3"
 zeroize = "1.8"
+# WHY fjall: the custody store's substrate under the named STORAGE-TIERS
+# migration exception (docs/design/custody-store.md, D17.14). Version 3
+# offers a single-writer transactional database whose commit takes a
+# persist mode. Default features are off: the store seals every value, so
+# lz4 compression would only spend CPU on ciphertext.
+fjall = { version = "3.1", default-features = false }
+# WHY epitrope: phylake runs epitrope's transition table, reservation
+# arithmetic, and recovery rules inside its transactions.
+epitrope = { path = "crates/epitrope", version = "0.1.6" }
 
 [profile.dev.package."*"]
 opt-level = 2
