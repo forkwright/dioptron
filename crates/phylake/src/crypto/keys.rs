@@ -7,7 +7,7 @@ use zeroize::ZeroizeOnDrop;
 
 use super::{
     BlobAddress, Entropy, KEY_LEN, KeyCheck, KeyId, OsEntropy, hkdf_expand, hkdf_extract,
-    hmac_sha256, hmac_sha256_verify,
+    hmac_sha256, hmac_sha256_verify, random_array,
 };
 use crate::Result;
 use crate::error::StoreLockedSnafu;
@@ -103,9 +103,7 @@ impl StoreSalt {
     }
 
     pub(crate) fn generate_with(entropy: &mut impl Entropy) -> Result<Self> {
-        let mut salt = [0_u8; 32];
-        entropy.fill(&mut salt)?;
-        Ok(Self(salt))
+        Ok(Self(random_array(entropy)?))
     }
 
     /// Rebuild a salt read back from `meta`.
@@ -241,8 +239,7 @@ impl TenantDataKey {
     }
 
     pub(crate) fn generate_with(id: KeyId, entropy: &mut impl Entropy) -> Result<Self> {
-        let mut bytes = SecretBox::new(Box::new([0_u8; KEY_LEN]));
-        entropy.fill(bytes.expose_secret_mut())?;
+        let bytes = SecretBox::new(Box::new(random_array::<KEY_LEN>(entropy)?));
         Ok(Self { id, bytes })
     }
 

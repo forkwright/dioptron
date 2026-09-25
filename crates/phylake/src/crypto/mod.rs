@@ -21,6 +21,8 @@ mod keys;
 mod seal;
 mod wrap;
 
+use std::mem::MaybeUninit;
+
 use hkdf::Hkdf;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
@@ -28,7 +30,7 @@ use snafu::{OptionExt, ResultExt};
 use zeroize::Zeroize;
 
 use crate::Result;
-use crate::error::{EntropySnafu, KeyMaterialSnafu};
+use crate::error::{EntropySnafu, KeyMaterialSnafu, MalformedSnafu};
 
 pub use keys::{SealingKey, StoreKeys, StoreSalt, SubKey, TenantDataKey, TenantKeys};
 pub use seal::{
@@ -230,17 +232,44 @@ pub fn provenance_digest(plaintext: &[u8]) -> ProvenanceDigest {
 /// only production implementation; tests inject a failing source to cover
 /// [`crate::Error::Entropy`].
 pub(crate) trait Entropy {
-    /// Fill `dest` with random bytes.
-    fn fill(&mut self, dest: &mut [u8]) -> Result<()>;
+    /// Fill `dest` with random bytes and return it as initialized bytes.
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]>;
 }
 
 /// The operating system random source via `getrandom`.
 pub(crate) struct OsEntropy;
 
 impl Entropy for OsEntropy {
-    fn fill(&mut self, dest: &mut [u8]) -> Result<()> {
-        getrandom::fill(dest).context(EntropySnafu)
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
+        getrandom::fill_uninit(dest).context(EntropySnafu)
     }
+}
+
+/// Draw `N` random bytes from `entropy`.
+///
+/// WHY uninitialized: the buffer starts as `MaybeUninit::uninit()`, so no
+/// initializing literal exists for the random bytes to overwrite, and the
+/// random source writes each byte in one pass. The array is then copied out
+/// of the slice the source reports as initialized, with no `unsafe`.
+///
+/// Callers drawing key material wrap the result in its zeroizing type at once.
+///
+/// # Errors
+///
+/// - [`crate::Error::Entropy`] when the random source fails.
+/// - [`crate::Error::Malformed`] when the source reports a length other than
+///   `N` as initialized.
+pub(crate) fn random_array<const N: usize>(entropy: &mut impl Entropy) -> Result<[u8; N]> {
+    let mut scratch = [MaybeUninit::<u8>::uninit(); N];
+    let filled = entropy.fill(&mut scratch)?;
+    let len = filled.len();
+    let drawn = <[u8; N]>::try_from(&*filled).ok();
+    // NOTE: scrub the scratch copy so a drawn key leaves no stray bytes behind.
+    scratch.zeroize();
+    drawn.context(MalformedSnafu {
+        what: "entropy draw",
+        len,
+    })
 }
 
 /// HMAC-SHA256 over the concatenation of `parts` under `key`.
