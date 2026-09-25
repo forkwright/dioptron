@@ -236,7 +236,7 @@ impl Store {
             intent.idempotency_key,
         )?;
         if let Some(idem) =
-            self.get::<IdemRecord, _>(&tx, slot::IDEM, &idem_key, &[tenant_keys.meta()])?
+            self.get::<IdemRecord, _>(&tx, slot::IDEM, &idem_key, &tenant_keys.meta_openers())?
         {
             return self.replay(&tx, intent, &idem);
         }

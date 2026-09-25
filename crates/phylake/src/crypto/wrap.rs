@@ -1,5 +1,8 @@
 //! Wrapping tenant data keys under the store's key-encryption subkey.
 //!
+//! Tenant data keys and, once a tenant's data key has rotated, the
+//! tenant's addressing subkeys are wrapped here.
+//!
 //! Wrapped format (82 bytes):
 //! `version u16 LE ‖ kek_id u32 LE ‖ data_key_id u32 LE ‖ nonce [24] ‖ ct [32] ‖ tag [16]`.
 //!
@@ -8,14 +11,21 @@
 //! unambiguous without length prefixes. Binding the tenant id means a
 //! wrapped key copied under another tenant's entry fails to unwrap; binding
 //! both key ids means neither header id can be rewritten.
+//!
+//! Wrapped addressing subkeys (118 bytes):
+//! `version u16 LE ‖ kek_id u32 LE ‖ nonce [24] ‖ ct [64] ‖ tag [16]`, where
+//! the plaintext is the index subkey followed by the blob-address subkey.
+//! Additional data: `"dioptron/v1/wrap-address" ‖ kek_id u32 LE ‖
+//! tenant_id [16]`. The distinct label keeps a wrapped data key and wrapped
+//! addressing subkeys from opening as each other.
 
 use chacha20poly1305::aead::{Aead, Payload};
 use secrecy::{ExposeSecretMut, SecretBox};
 use snafu::{OptionExt, ensure};
 use zeroize::Zeroizing;
 
-use super::TenantDataKey;
 use super::seal::{cipher, encrypt, random_nonce, xnonce};
+use super::{AddressKeys, TenantDataKey};
 use super::{Entropy, KEY_LEN, KeyId, NONCE_LEN, OsEntropy, StoreKeys, TAG_LEN, TENANT_ID_LEN};
 use crate::Result;
 use crate::error::{
@@ -31,6 +41,24 @@ pub const WRAPPED_KEY_LEN: usize = 2 + 4 + 4 + NONCE_LEN + KEY_LEN + TAG_LEN;
 const WRAP_LABEL: &[u8] = b"dioptron/v1/wrap";
 
 const WRAP_AAD_LEN: usize = WRAP_LABEL.len() + 4 + 4 + TENANT_ID_LEN;
+
+/// Version of the wrapped addressing-subkey encoding.
+const WRAPPED_ADDRESS_VERSION: u16 = 1;
+
+/// Length of wrapped addressing subkeys in bytes.
+pub(crate) const WRAPPED_ADDRESS_LEN: usize = 2 + 4 + NONCE_LEN + 2 * KEY_LEN + TAG_LEN;
+
+const ADDRESS_WRAP_LABEL: &[u8] = b"dioptron/v1/wrap-address";
+
+const ADDRESS_AAD_LEN: usize = ADDRESS_WRAP_LABEL.len() + 4 + TENANT_ID_LEN;
+
+fn address_aad(kek_id: KeyId, tenant_id: &[u8; TENANT_ID_LEN]) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(ADDRESS_AAD_LEN);
+    aad.extend_from_slice(ADDRESS_WRAP_LABEL);
+    aad.extend_from_slice(&kek_id.get().to_le_bytes());
+    aad.extend_from_slice(tenant_id);
+    aad
+}
 
 fn wrap_aad(kek_id: KeyId, data_key_id: KeyId, tenant_id: &[u8; TENANT_ID_LEN]) -> Vec<u8> {
     let mut aad = Vec::with_capacity(WRAP_AAD_LEN);
@@ -136,6 +164,81 @@ impl StoreKeys {
         );
         dest.copy_from_slice(&plain);
         Ok(TenantDataKey::from_secret(data_key_id, bytes))
+    }
+}
+
+impl StoreKeys {
+    /// Wrap `keys`, a tenant's addressing subkeys, for storage in the
+    /// `keys` keyspace under `tenant_id`.
+    pub(crate) fn wrap_address_keys_with(
+        &self,
+        tenant_id: &[u8; TENANT_ID_LEN],
+        keys: &AddressKeys,
+        entropy: &mut impl Entropy,
+    ) -> Result<Vec<u8>> {
+        let kek_id = self.root_key_id();
+        let nonce = random_nonce(entropy)?;
+        let mut plain = Zeroizing::new([0_u8; 2 * KEY_LEN]);
+        let (index, blob_addr) = plain.split_at_mut(KEY_LEN);
+        index.copy_from_slice(keys.index().expose());
+        blob_addr.copy_from_slice(keys.blob_addr().expose());
+        let ct = encrypt(self.kek(), &nonce, &address_aad(kek_id, tenant_id), &*plain)?;
+        let mut out = Vec::with_capacity(WRAPPED_ADDRESS_LEN);
+        out.extend_from_slice(&WRAPPED_ADDRESS_VERSION.to_le_bytes());
+        out.extend_from_slice(&kek_id.get().to_le_bytes());
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&ct);
+        Ok(out)
+    }
+
+    /// Unwrap a tenant's addressing subkeys stored under `tenant_id`.
+    ///
+    /// Errors as [`StoreKeys::unwrap_tenant_key`].
+    pub(crate) fn unwrap_address_keys(
+        &self,
+        tenant_id: &[u8; TENANT_ID_LEN],
+        wrapped: &[u8],
+    ) -> Result<AddressKeys> {
+        let malformed = || MalformedSnafu {
+            what: "wrapped addressing subkeys",
+            len: wrapped.len(),
+        };
+        ensure!(wrapped.len() == WRAPPED_ADDRESS_LEN, malformed());
+        let (version, rest) = wrapped.split_first_chunk::<2>().with_context(malformed)?;
+        let (kek_id, rest) = rest.split_first_chunk::<4>().with_context(malformed)?;
+        let (nonce, ct) = rest
+            .split_first_chunk::<NONCE_LEN>()
+            .with_context(malformed)?;
+        let version = u16::from_le_bytes(*version);
+        ensure!(
+            version == WRAPPED_ADDRESS_VERSION,
+            UnsupportedRecordVersionSnafu { found: version }
+        );
+        let kek_id = KeyId::new(u32::from_le_bytes(*kek_id));
+        ensure!(
+            kek_id == self.root_key_id(),
+            UnknownKeyIdSnafu { found: kek_id }
+        );
+        let aad = address_aad(kek_id, tenant_id);
+        let plain = Zeroizing::new(
+            cipher(self.kek())?
+                .decrypt(xnonce(nonce), Payload { msg: ct, aad: &aad })
+                .ok()
+                .context(TenantKeyUnwrapSnafu)?,
+        );
+        let (index, blob_addr) = plain
+            .split_first_chunk::<KEY_LEN>()
+            .context(MalformedSnafu {
+                what: "unwrapped addressing subkeys",
+                len: plain.len(),
+            })?;
+        let blob_addr = <&[u8; KEY_LEN]>::try_from(blob_addr)
+            .ok()
+            .context(MalformedSnafu {
+                what: "unwrapped addressing subkeys",
+                len: plain.len(),
+            })?;
+        Ok(AddressKeys::copy_from(index, blob_addr))
     }
 }
 

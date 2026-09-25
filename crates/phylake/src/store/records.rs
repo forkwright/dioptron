@@ -49,6 +49,10 @@ pub(crate) mod kind {
     pub(crate) const AUDIT: RecordKind = RecordKind::new(14);
     /// A global audit stub in `audit_stub`.
     pub(crate) const AUDIT_STUB: RecordKind = RecordKind::new(15);
+    /// A tenant data-key rotation in `rekey`.
+    pub(crate) const REKEY: RecordKind = RecordKind::new(16);
+    /// A crypto-shredded tenant's tombstone in `tenants`.
+    pub(crate) const TOMBSTONE: RecordKind = RecordKind::new(17);
 }
 
 /// Derive list shared by every stored record.
@@ -313,5 +317,41 @@ record! {
         pub(crate) capability: Capability,
         pub(crate) outcome: OutcomeKind,
         pub(crate) time: Timestamp,
+    }
+}
+
+record! {
+    /// A tenant data-key rotation: in progress until `done`, then kept as
+    /// the record of the last rotation until the next one replaces it.
+    pub(crate) struct RekeyRecord {
+        pub(crate) tenant: TenantId,
+        /// The data key being retired.
+        pub(crate) from_key_id: u32,
+        /// The data key new and re-sealed records use.
+        pub(crate) to_key_id: u32,
+        /// Position in the rotation's keyspace walk; the walk's length
+        /// once every keyspace has been visited.
+        pub(crate) keyspace: u8,
+        /// The last record key visited in `keyspace`; `None` at its start.
+        pub(crate) cursor: Option<Vec<u8>>,
+        /// Records examined so far.
+        pub(crate) visited: u64,
+        /// Records re-sealed under the new data key so far.
+        pub(crate) resealed: u64,
+        /// Records in the walked keyspaces when the rotation began.
+        pub(crate) total: u64,
+        /// Whether the old data key is retired.
+        pub(crate) done: bool,
+        pub(crate) started_at: Timestamp,
+        pub(crate) finished_at: Option<Timestamp>,
+    }
+}
+
+record! {
+    /// A crypto-shredded tenant. It replaces the tenant record, so the id
+    /// stays reserved and reads report the tenant as shredded.
+    pub(crate) struct TombstoneRecord {
+        pub(crate) tenant: TenantId,
+        pub(crate) shredded_at: Timestamp,
     }
 }

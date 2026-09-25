@@ -17,12 +17,16 @@ use syntheke::{
     InvocationId, SessionId, SessionScope, SourceRef, TenantClass, TenantId, Timestamp,
 };
 
+use syntheke::{AuditRecord, QueryPage, ReadChunk};
+
+use super::keyring::TenantKeyring;
 use super::{
-    ALL_KEYSPACES, Boundary, Crash, Failpoint, GrantIssue, IssueOutcome, NewSession, Phase,
-    RootGrant, Store, StoreOptions, TenantRegistration,
+    ALL_KEYSPACES, ArtifactInfo, Begin, Boundary, Crash, Failpoint, GrantIssue, Intent,
+    IssueOutcome, NewSession, Phase, RootGrant, SettleOutcome, Slot, Store, StoreOptions,
+    TenantRegistration, Transfer, slot,
 };
 use crate::Result;
-use crate::crypto::Entropy;
+use crate::crypto::{Entropy, KeyId, Keyspace, SealingKey, sealed_key_id};
 use crate::keyfile::RootKey;
 
 /// The root key every fixture store uses.
@@ -405,4 +409,169 @@ pub(crate) fn occurrences(haystack: &[u8], needle: &[u8]) -> usize {
 /// The set of capabilities in `list`.
 pub(crate) fn caps(list: &[Capability]) -> BTreeSet<Capability> {
     list.iter().copied().collect()
+}
+
+/// The root key rotation tests move to.
+pub(crate) const NEXT_ROOT_BYTES: [u8; 32] = [0xa5; 32];
+
+/// A failpoint that crashes the `nth` time (counting from 1) `boundary`
+/// reaches `phase`.
+#[derive(Debug)]
+pub(crate) struct CrashAtNth {
+    boundary: Boundary,
+    phase: Phase,
+    nth: u32,
+    hits: AtomicU32,
+}
+
+impl CrashAtNth {
+    /// Crashes at the `nth` hit of `boundary` in `phase`.
+    pub(crate) fn new(boundary: Boundary, phase: Phase, nth: u32) -> Arc<Self> {
+        Arc::new(Self {
+            boundary,
+            phase,
+            nth,
+            hits: AtomicU32::new(0),
+        })
+    }
+
+    fn hit(&self, boundary: Boundary, phase: Phase) -> Result<(), Crash> {
+        if boundary == self.boundary && phase == self.phase {
+            let hits = self.hits.fetch_add(1, Ordering::SeqCst).saturating_add(1);
+            if hits == self.nth {
+                return Err(Crash);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Failpoint for CrashAtNth {
+    fn before_commit(&self, boundary: Boundary) -> Result<(), Crash> {
+        self.hit(boundary, Phase::BeforeCommit)
+    }
+
+    fn after_commit(&self, boundary: Boundary) -> Result<(), Crash> {
+        self.hit(boundary, Phase::AfterCommit)
+    }
+}
+
+/// Runs one capture by the agent under [`G_AGENT`] through B5 and returns
+/// its artifact. `byte` picks the invocation, artifact, and idempotency
+/// key; `envelope` is stored verbatim.
+pub(crate) fn publish_capture(store: &Store, byte: u8, envelope: &[u8]) -> ArtifactRef {
+    let key = idem(byte);
+    let begin = store
+        .begin(&Intent::new(
+            invocation(byte),
+            capture(G_AGENT),
+            &key,
+            [byte; 32],
+        ))
+        .expect("B1");
+    assert!(matches!(begin, Begin::Persisted(_)), "{begin:?}");
+    store.dispatch(invocation(byte)).expect("B2");
+    let transfer = Transfer::new(artifact(byte), envelope, source(), ACTUAL);
+    store
+        .complete_transfer(invocation(byte), &transfer)
+        .expect("B3");
+    store.publish(invocation(byte)).expect("B4");
+    store
+        .settle(invocation(byte), SettleOutcome::Success)
+        .expect("B5");
+    artifact(byte)
+}
+
+/// What a reader sees of the agent's captures, session, and audit trail.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Reads {
+    pub(crate) artifacts: Vec<Option<ArtifactInfo>>,
+    pub(crate) envelopes: Vec<Option<ReadChunk>>,
+    pub(crate) session: Option<QueryPage>,
+    pub(crate) audit: Vec<AuditRecord>,
+}
+
+/// Reads `artifacts`, their envelopes, the agent's session, and the
+/// agent's audit trail.
+pub(crate) fn reads(store: &Store, artifacts: &[ArtifactRef]) -> Reads {
+    Reads {
+        artifacts: artifacts
+            .iter()
+            .map(|&id| store.artifact(id).expect("artifact"))
+            .collect(),
+        envelopes: artifacts
+            .iter()
+            .map(|&id| store.read_artifact(id, 0, 1 << 20).expect("envelope"))
+            .collect(),
+        session: store
+            .session_artifacts(S_AGENT, None, 100)
+            .expect("session"),
+        audit: store.audit_records(AGENT, None, 1000).expect("audit"),
+    }
+}
+
+/// Which of a keyring's opener sets a record kind uses.
+type Openers = fn(&TenantKeyring) -> [&SealingKey; 2];
+
+/// Tenant-sealed record kinds and the keys that open each, listed
+/// independently of the rekey walk.
+const TENANT_SLOTS: [(Slot, Openers); 6] = [
+    (slot::IDEM, TenantKeyring::meta_openers),
+    (slot::ARTIFACT, TenantKeyring::meta_openers),
+    (slot::PENDING_ARTIFACT, TenantKeyring::meta_openers),
+    (slot::BLOB, TenantKeyring::blob_openers),
+    (slot::SESSION_INDEX, TenantKeyring::meta_openers),
+    (slot::AUDIT, TenantKeyring::audit_openers),
+];
+
+/// One tenant-sealed record: keyspace, record key, header key id.
+pub(crate) type SealedRecord = (&'static str, Vec<u8>, KeyId);
+
+/// Every record sealed under `tenant`'s keys that its keyring opens.
+pub(crate) fn tenant_sealed(store: &Store, tenant: TenantId) -> Vec<SealedRecord> {
+    let snapshot = store.db.read_tx();
+    let keys = store.tenant_keys(&snapshot, tenant).expect("keyring");
+    let mut found = Vec::new();
+    for (slot, openers) in TENANT_SLOTS {
+        for guard in snapshot.iter(store.ks.get(slot.keyspace).expect("keyspace")) {
+            let (key, sealed) = guard.into_inner().expect("entry");
+            if Store::open_bytes(&openers(&keys), slot, &key, &sealed).is_ok() {
+                let id = sealed_key_id(&sealed).expect("header");
+                found.push((slot.keyspace.name(), key.to_vec(), id));
+            }
+        }
+    }
+    found
+}
+
+/// The raw value at `key` in `keyspace`.
+pub(crate) fn raw(store: &Store, keyspace: Keyspace, key: &[u8]) -> Option<Vec<u8>> {
+    store
+        .db
+        .read_tx()
+        .get(store.ks.get(keyspace).expect("keyspace"), key)
+        .expect("read")
+        .map(|value| value.to_vec())
+}
+
+/// Copies the directory tree at `from` to `to`, which must not exist.
+pub(crate) fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir(to).expect("create copy");
+    for entry in std::fs::read_dir(from).expect("read_dir") {
+        let entry = entry.expect("entry");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("file type").is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).expect("copy file");
+        }
+    }
+}
+
+/// Total occurrences of `needle` in every file under `root`.
+pub(crate) fn disk_hits(root: &Path, needle: &[u8]) -> usize {
+    read_tree(root)
+        .iter()
+        .map(|(_, bytes)| occurrences(bytes, needle))
+        .sum()
 }

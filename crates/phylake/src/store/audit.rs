@@ -158,7 +158,7 @@ impl Store {
                 break;
             }
             let (key, sealed) = guard.into_inner().context(DatabaseSnafu)?;
-            let plain = Self::open_bytes(&[tenant_keys.audit()], slot::AUDIT, &key, &sealed)?;
+            let plain = Self::open_bytes(&tenant_keys.audit_openers(), slot::AUDIT, &key, &sealed)?;
             let entry = <AuditEntryRecord as super::codec::StoredRecord>::decode(
                 &plain,
                 Keyspace::Audit.name(),

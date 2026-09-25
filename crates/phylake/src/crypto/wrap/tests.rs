@@ -165,6 +165,91 @@ fn wrap_surfaces_entropy_failure() {
     );
 }
 
+/// Addressing subkeys of a fixed tenant data key, and a wrapping of them.
+fn wrapped_address() -> (crate::crypto::AddressKeys, Vec<u8>) {
+    let (_, address) = tenant_key(1, 0x7e).derive().expect("derive").split();
+    let wrapped = store_keys()
+        .wrap_address_keys_with(&TENANT_A, &address, &mut OsEntropy)
+        .expect("wrap");
+    (address, wrapped)
+}
+
+#[test]
+fn address_keys_round_trip_and_hide_the_subkeys() {
+    let (address, wrapped) = wrapped_address();
+    assert_eq!(wrapped.len(), WRAPPED_ADDRESS_LEN, "fixed wrapped length");
+    let back = store_keys()
+        .unwrap_address_keys(&TENANT_A, &wrapped)
+        .expect("unwrap");
+    assert_eq!(
+        back.index().expose(),
+        address.index().expose(),
+        "index subkey"
+    );
+    assert_eq!(
+        back.blob_addr().expose(),
+        address.blob_addr().expose(),
+        "blob-address subkey"
+    );
+    for subkey in [address.index().expose(), address.blob_addr().expose()] {
+        assert!(
+            !wrapped.windows(KEY_LEN).any(|w| w == subkey),
+            "plaintext subkey absent from wrapped bytes"
+        );
+    }
+}
+
+#[test]
+fn address_keys_bind_tenant_and_key_id_and_check_shape() {
+    let (_, wrapped) = wrapped_address();
+    let store = store_keys();
+    let err = store
+        .unwrap_address_keys(&TENANT_B, &wrapped)
+        .expect_err("another tenant");
+    assert!(matches!(err, Error::TenantKeyUnwrap { .. }), "{err:?}");
+
+    let other_root = StoreKeys::derive(
+        &RootKey::from_bytes(ROOT_BYTES),
+        KeyId::new(2),
+        &StoreSalt::from_bytes([0x22; 32]),
+    )
+    .expect("derive");
+    let err = other_root
+        .unwrap_address_keys(&TENANT_A, &wrapped)
+        .expect_err("another root key id");
+    assert!(matches!(err, Error::UnknownKeyId { .. }), "{err:?}");
+
+    let err = store
+        .unwrap_address_keys(&TENANT_A, wrapped.get(1..).expect("tail"))
+        .expect_err("short");
+    assert!(matches!(err, Error::Malformed { .. }), "{err:?}");
+
+    let mut versioned = wrapped;
+    *versioned.first_mut().expect("version byte") = 9;
+    let err = store
+        .unwrap_address_keys(&TENANT_A, &versioned)
+        .expect_err("version");
+    assert!(
+        matches!(err, Error::UnsupportedRecordVersion { found: 9, .. }),
+        "{err:?}"
+    );
+
+    let data_key = store
+        .wrap_tenant_key(&TENANT_A, &tenant_key(1, 0x7e))
+        .expect("wrap");
+    let err = store
+        .unwrap_address_keys(&TENANT_A, &data_key)
+        .expect_err("a wrapped data key is not addressing subkeys");
+    assert!(matches!(err, Error::Malformed { .. }), "{err:?}");
+}
+
+#[test]
+fn address_wrap_surfaces_entropy_failure() {
+    let (address, _) = wrapped_address();
+    let err = store_keys().wrap_address_keys_with(&TENANT_A, &address, &mut FailingEntropy);
+    assert!(matches!(err, Err(Error::Entropy { .. })), "{err:?}");
+}
+
 #[test]
 fn unwrapped_key_derives_same_subkeys() {
     let store = store_keys();
