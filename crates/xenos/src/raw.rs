@@ -15,7 +15,9 @@ use crate::frame::{self, Frame, WireMessage};
 /// reads one frame at a time.
 ///
 /// Every send and read must finish within the connection's timeout, which
-/// bounds the whole operation, not each system call.
+/// bounds the whole operation, not each system call: a peer that trickles
+/// bytes cannot extend it. A timeout too large for the clock fails closed
+/// at once with [`Error::Timeout`].
 #[derive(Debug)]
 pub struct RawConn {
     stream: UnixStream,
@@ -35,6 +37,10 @@ impl RawConn {
     }
 
     /// Wraps an already connected stream.
+    ///
+    /// The stream must be in blocking mode (the default for a connected
+    /// [`UnixStream`]); on a nonblocking stream every wait reports
+    /// [`Error::Timeout`] at once.
     #[must_use]
     pub const fn from_stream(stream: UnixStream, timeout: Duration) -> Self {
         Self { stream, timeout }
@@ -64,9 +70,7 @@ impl RawConn {
     }
 
     fn deadline(&self) -> Instant {
-        Instant::now()
-            .checked_add(self.timeout)
-            .unwrap_or_else(Instant::now)
+        frame::deadline_after(self.timeout)
     }
 
     /// Sends `bytes` exactly as given: a partial header, a header with any
@@ -168,3 +172,6 @@ impl RawConn {
         self.stream.shutdown(Shutdown::Write).context(IoSnafu)
     }
 }
+
+#[cfg(test)]
+mod tests;

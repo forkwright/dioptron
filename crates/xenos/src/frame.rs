@@ -8,7 +8,7 @@
 
 use std::io::{self, Read as _, Write as _};
 use std::os::unix::net::UnixStream;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use snafu::{IntoError as _, OptionExt as _, ResultExt as _, ensure};
 use syntheke::{
@@ -212,6 +212,14 @@ enum Short {
     Failed(Error),
 }
 
+/// The instant `span` from now. A span too large for the clock is treated
+/// as already elapsed, so the operation fails closed with
+/// [`Error::Timeout`] instead of waiting without bound.
+pub(crate) fn deadline_after(span: Duration) -> Instant {
+    let now = Instant::now();
+    now.checked_add(span).unwrap_or(now)
+}
+
 /// Whether an I/O error kind means the socket timeout fired.
 fn is_timeout(kind: io::ErrorKind) -> bool {
     matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
@@ -283,7 +291,17 @@ pub(crate) fn read_frame(
     Ok(Frame { kind, body })
 }
 
-/// Writes all of `bytes` before `deadline`.
+/// Largest slice handed to one `write` call.
+///
+/// WHY: the kernel applies the socket send timeout to each buffer it
+/// allocates inside one `write`, not to the call, so a single large write
+/// to a reader that frees space slowly can block far past the deadline.
+/// Linux unix stream sockets queue up to 32 KiB of paged data per
+/// allocation; a 16 KiB slice needs one allocation and so waits at most
+/// once, for at most the time left.
+const WRITE_SLICE: usize = 16 * 1024;
+
+/// Writes all of `bytes` before `deadline`, however slowly the peer reads.
 pub(crate) fn write_all(
     stream: &mut UnixStream,
     bytes: &[u8],
@@ -294,7 +312,8 @@ pub(crate) fn write_all(
         let left = deadline.saturating_duration_since(Instant::now());
         ensure!(!left.is_zero(), TimeoutSnafu);
         stream.set_write_timeout(Some(left)).context(IoSnafu)?;
-        match stream.write(rest) {
+        let slice = rest.get(..WRITE_SLICE).unwrap_or(rest);
+        match stream.write(slice) {
             Ok(0) => {
                 return Err(io::Error::from(io::ErrorKind::WriteZero)).context(IoSnafu);
             }

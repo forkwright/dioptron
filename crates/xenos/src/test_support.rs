@@ -1,4 +1,4 @@
-//! Scripted server peer for unit tests.
+//! Test-only support: a scripted server peer for unit tests.
 //!
 //! The peer frames with syntheke's header codec (`FrameHeader`), not this
 //! crate's, so every test that passes checks the client's framing against
@@ -28,8 +28,16 @@ pub(crate) const TENANT: TenantId = TenantId::from_bytes([0x11; 16]);
 /// Server nonce the peer sends.
 pub(crate) const SERVER_NONCE: Nonce = Nonce::from_bytes([0x5a; 16]);
 
-/// Short bound for tests that expect a timeout.
+/// Short bound for tests that expect a timeout. Every test using it holds
+/// the peer still, or trickles bytes that cannot complete within it, so the
+/// outcome is a timeout however slow the host is; the bound only sets how
+/// long the test takes.
 pub(crate) const SHORT: Duration = Duration::from_millis(50);
+
+/// Gap between trickled bytes, well under [`SHORT`], so a client that
+/// bounded each system call instead of the whole operation would never
+/// time out.
+pub(crate) const TRICKLE_GAP: Duration = Duration::from_millis(2);
 
 /// Bound for tests that expect success; generous so a loaded host cannot
 /// turn a pass into a timeout.
@@ -73,13 +81,53 @@ impl Peer {
 
     /// Reads one frame's header (validated by syntheke) and body.
     pub(crate) fn recv_raw(&mut self) -> (FrameHeader, Vec<u8>) {
+        self.try_recv_raw().expect("peer read frame")
+    }
+
+    /// As [`Self::recv_raw`], but `None` when the client closed first.
+    pub(crate) fn try_recv_raw(&mut self) -> Option<(FrameHeader, Vec<u8>)> {
         let mut head = [0_u8; HEADER_LEN];
-        self.stream.read_exact(&mut head).expect("peer read header");
+        self.stream.read_exact(&mut head).ok()?;
         let header = FrameHeader::decode(&head, HARD_MAX_BODY).expect("syntheke accepts header");
         let len = usize::try_from(header.len()).expect("len fits usize");
         let mut body = vec![0_u8; len];
-        self.stream.read_exact(&mut body).expect("peer read body");
-        (header, body)
+        self.stream.read_exact(&mut body).ok()?;
+        Some((header, body))
+    }
+
+    /// Writes `bytes`, returning `false` when the client has closed.
+    pub(crate) fn try_send_bytes(&mut self, bytes: &[u8]) -> bool {
+        self.stream.write_all(bytes).is_ok()
+    }
+
+    /// Writes `bytes` one byte at a time, [`TRICKLE_GAP`] apart. Returns
+    /// `true` when the client closed before every byte was written.
+    ///
+    /// WHY the sleep: it paces the peer, not the assertion. A client that
+    /// bounds the whole read gives up while bytes are still arriving, which
+    /// this reports; a client that bounds each system call never would.
+    pub(crate) fn trickle(&mut self, bytes: &[u8]) -> bool {
+        for byte in bytes {
+            if !self.try_send_bytes(std::slice::from_ref(byte)) {
+                return true;
+            }
+            thread::sleep(TRICKLE_GAP);
+        }
+        false
+    }
+
+    /// Reads at most `chunk` bytes per read, [`TRICKLE_GAP`] apart, until
+    /// the client closes. Returns the byte count read.
+    pub(crate) fn drain_slowly(&mut self, chunk: usize) -> usize {
+        let mut buf = vec![0_u8; chunk];
+        let mut total = 0_usize;
+        loop {
+            match self.stream.read(&mut buf) {
+                Ok(0) | Err(_) => return total,
+                Ok(count) => total = total.saturating_add(count),
+            }
+            thread::sleep(TRICKLE_GAP);
+        }
     }
 
     /// Asserts the client closed the connection without sending more.

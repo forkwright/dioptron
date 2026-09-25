@@ -18,9 +18,9 @@
 mod client;
 mod error;
 mod frame;
-#[cfg(test)]
-mod peer;
 mod raw;
+#[cfg(test)]
+mod test_support;
 
 pub use client::{Client, Timeouts, supported_versions};
 pub use error::Error;

@@ -13,12 +13,17 @@ use syntheke::{
 };
 
 use crate::error::{
-    BrokenSnafu, ConnectSnafu, Error, IncompatibleSnafu, RandomSnafu, UnexpectedResponseSnafu,
-    VersionOutOfRangeSnafu,
+    BrokenSnafu, ConnectSnafu, Error, IncompatibleSnafu, IoSnafu, RandomSnafu,
+    UnexpectedResponseSnafu, VersionOutOfRangeSnafu,
 };
+use crate::frame::{self, deadline_after};
 use crate::raw::RawConn;
 
 /// Time bounds for a client connection.
+///
+/// Each bound covers a whole operation, not one system call, so a server
+/// that trickles bytes cannot extend it. A bound too large for the clock
+/// fails closed at once with [`Error::Timeout`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Timeouts {
     /// Bound on the whole handshake, from the first byte sent to `Admitted`.
@@ -43,8 +48,16 @@ impl Default for Timeouts {
 ///
 /// Requests may be pipelined with [`Client::send_request`] and
 /// [`Client::recv_response`]; [`Client::call`] is the one-at-a-time form.
-/// After any failure that may have left a partial frame on the wire, the
-/// client answers every further call with [`Error::Broken`].
+///
+/// Every frame before `Admitted`, in either direction, is held to the
+/// contract's 4 KiB pre-auth bound; after `Admitted` the negotiated
+/// [`Client::max_frame`] applies both ways.
+///
+/// A request refused locally (contract check, over-bound body) writes
+/// nothing and leaves the client usable. Any failure once a send or read
+/// has started, including a timeout, a fault, an unexpected frame, or an
+/// invalid body, leaves the framing state unknown or the server closing:
+/// the client then answers every further call with [`Error::Broken`].
 #[derive(Debug)]
 pub struct Client {
     conn: RawConn,
@@ -52,13 +65,6 @@ pub struct Client {
     max_frame: u32,
     timeouts: Timeouts,
     broken: bool,
-}
-
-/// Deadline `span` from now; a span too large for the clock is treated as
-/// already elapsed so it fails closed.
-fn deadline_after(span: Duration) -> Instant {
-    let now = Instant::now();
-    now.checked_add(span).unwrap_or(now)
 }
 
 impl Client {
@@ -121,6 +127,9 @@ impl Client {
         random: impl FnOnce(&mut [u8]) -> Result<(), getrandom::Error>,
     ) -> Result<Self, Error> {
         let deadline = deadline_after(timeouts.handshake);
+        // WHY: the deadline logic relies on socket timeouts, which a
+        // nonblocking stream would turn into immediate `Timeout` errors.
+        stream.set_nonblocking(false).context(IoSnafu)?;
         let (min, max) = (*versions.start(), *versions.end());
         let mut nonce = [0_u8; NONCE_LEN];
         random(&mut nonce).context(RandomSnafu)?;
@@ -218,9 +227,7 @@ impl Client {
     /// [`Error::Broken`], [`Error::Contract`], [`Error::FrameTooLarge`], or a
     /// send error.
     pub fn send_request(&mut self, request: &Request) -> Result<(), Error> {
-        ensure!(!self.broken, BrokenSnafu);
-        let bytes = crate::frame::frame_bytes(request, self.max_frame)?;
-        self.guarded(|conn, _, deadline| conn.send_bytes_by(&bytes, deadline))
+        self.send_message(request)
     }
 
     /// Sends a `Cancel` for `request_id`.
@@ -229,8 +236,15 @@ impl Client {
     ///
     /// [`Error::Broken`] or a send error.
     pub fn cancel(&mut self, request_id: u64) -> Result<(), Error> {
-        let cancel = Cancel { request_id };
-        self.guarded(|conn, cap, deadline| conn.send_message_by(&cancel, cap, deadline))
+        self.send_message(&Cancel { request_id })
+    }
+
+    /// Frames `message` under the negotiated bound, refusing it locally
+    /// before any byte is written, then sends it.
+    fn send_message<M: frame::WireMessage>(&mut self, message: &M) -> Result<(), Error> {
+        ensure!(!self.broken, BrokenSnafu);
+        let bytes = frame::frame_bytes(message, self.max_frame)?;
+        self.guarded(|conn, _, deadline| conn.send_bytes_by(&bytes, deadline))
     }
 
     /// Reads the next response.
