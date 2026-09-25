@@ -15,7 +15,7 @@ getrandom.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
 rkyv.workspace = true
-rustix.workspace = true
+rustix = { workspace = true, features = ["std", "fs", "process"] }
 secrecy.workspace = true
 sha2.workspace = true
 snafu.workspace = true

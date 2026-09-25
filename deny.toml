@@ -17,12 +17,12 @@ ignore = []
 # need; cargo-deny warns on allowances no crate uses. Each implementation
 # slice adds the licenses its new dependencies need, with the dependency
 # that needs them.
-# - MIT, Apache-2.0: rkyv and its support crates (MIT), the RustCrypto
-#   crates, secrecy, zeroize, snafu, toml, getrandom, tempfile, rustix,
-#   fjall and its storage crates, and their build dependencies (all offer
-#   MIT or Apache-2.0).
+# - MIT, Apache-2.0: rkyv and its support crates, the RustCrypto crates,
+#   secrecy, zeroize, snafu, getrandom, tempfile, rustix, toml, tokio,
+#   tracing, fjall and its storage crates, and their build dependencies
+#   (all offer MIT or Apache-2.0).
 # - BSD-3-Clause: ed25519-dalek, curve25519-dalek, and subtle (Ed25519
-#   tenant authentication in xenos).
+#   tenant authentication: the daemon verifies, xenos signs).
 # - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
 # - 0BSD: varint-rs, the key-length encoding inside lsm-tree (under fjall).
 # - BSL-1.0: xxhash-rust, the checksum inside fjall and lsm-tree.
@@ -46,12 +46,14 @@ wildcards = "deny"
 allow-wildcard-paths = true
 # WHY: the ecosystem is mid-migration from syn 2 to syn 3. rkyv_derive
 # 0.8.18, bytecheck_derive 0.8.3, and ptr_meta_derive 0.3.2 use syn 3; the
-# latest snafu-derive (0.9.2) and munge_macro (0.4.7, inside rkyv) still use
-# syn 2. Both copies are proc-macro build dependencies and never reach a
-# built artifact. The one way to a single syn is holding rkyv at 0.8.17 with
+# latest snafu-derive (0.9.2), munge_macro (0.4.7, inside rkyv), and
+# curve25519-dalek-derive (0.1.1, under ed25519-dalek 3) still use syn 2.
+# tokio-macros 2.7 uses syn 3. Both copies are proc-macro build
+# dependencies and never reach a built artifact. The one way to a single syn is holding rkyv at 0.8.17 with
 # bytecheck 0.8.2 and ptr_meta 0.3.1, which pins the wire validator below
 # its current release to dedupe a build tool; rejected. Retire this entry
-# when snafu-derive and munge_macro release on syn 3.
+# when snafu-derive, munge_macro, and curve25519-dalek-derive release on
+# syn 3.
 #
 # WHY hashbrown: three copies meet in the custody store and none can be
 # aligned from this workspace. rkyv 0.8.18 (the wire format, syntheke)
@@ -67,7 +69,7 @@ allow-wildcard-paths = true
 # enough, because the dashmap 7 release candidates use hashbrown 0.15, so
 # that move turns this entry into a 0.15 entry rather than removing it.
 skip = [
-    { crate = "syn@2", reason = "proc-macro build dependency; snafu-derive and munge_macro have no syn 3 release yet" },
+    { crate = "syn@2", reason = "proc-macro build dependency; snafu-derive, munge_macro, and curve25519-dalek-derive have no syn 3 release yet" },
     { crate = "hashbrown@0.14", reason = "dashmap 6 under fjall 3.1; retire when fjall's map dependency is on hashbrown 0.17 (dashmap 7 rc uses 0.15)" },
     { crate = "hashbrown@0.16", reason = "quick_cache 0.6 under lsm-tree 3.1; retire when lsm-tree moves to quick_cache 0.7 (hashbrown 0.17)" },
 ]
