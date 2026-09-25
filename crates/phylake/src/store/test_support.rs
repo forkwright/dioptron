@@ -263,9 +263,9 @@ pub(crate) const fn invocation(byte: u8) -> InvocationId {
     InvocationId::from_bytes([byte; 16])
 }
 
-/// An artifact id from one byte.
+/// The artifact invocation `byte` publishes under.
 pub(crate) const fn artifact(byte: u8) -> ArtifactRef {
-    ArtifactRef::from_bytes([byte; 16])
+    super::artifact_ref(invocation(byte))
 }
 
 /// A 24-byte idempotency key from one byte.

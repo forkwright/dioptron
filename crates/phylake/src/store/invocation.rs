@@ -2,15 +2,16 @@
 //! transactions share.
 
 use epitrope::{AuthzRequest, Decision, ReservationPlan, authorize, plan, reserve};
+use sha2::{Digest as _, Sha256};
 use snafu::{OptionExt as _, ResultExt as _, ensure};
 use syntheke::{
-    ArtifactRef, AuditSeq, Capability, Cost, Failure, GrantId, IdempotencyKey, InvocationId,
-    InvocationState, OutcomeKind, Plan, ReleaseReason, SessionId, SourceRef, TenantId,
+    ArtifactRef, AuditSeq, Capability, Cost, Dimension, Failure, GrantId, IdempotencyKey,
+    InvocationId, InvocationState, Plan, ReleaseReason, SessionId, SourceRef, TenantId,
 };
 
 use super::audit::AuditEntry;
 use super::record_key;
-use super::records::{IdemRecord, InvocationRecord, LedgerRecord, LedgerRef};
+use super::records::{IdemRecord, InvocationRecord, LedgerRecord, LedgerRef, Terminal};
 use super::view::View;
 use super::{Boundary, Store, WriteTx, slot};
 use crate::Result;
@@ -27,7 +28,10 @@ pub struct Intent<'a> {
     pub authz: AuthzRequest<'a>,
     /// The caller's idempotency key.
     pub idempotency_key: &'a IdempotencyKey,
-    /// Digest of the request, including the designated grant.
+    /// The caller's digest of the request body. The store binds it to the
+    /// designated grant, capability, session, target, and declared cost
+    /// itself, so a replay under any other of these
+    /// conflicts even when the caller's digest omits them.
     pub request_digest: [u8; 32],
 }
 
@@ -85,12 +89,8 @@ pub struct InvocationStatus {
     pub session: Option<SessionId>,
     /// Its lifecycle state.
     pub state: InvocationState,
-    /// Why it released its reservation, when `Released`.
-    pub release_reason: Option<ReleaseReason>,
-    /// The reply kind recorded at a terminal state.
-    pub outcome: Option<OutcomeKind>,
-    /// The failure recorded at a terminal state, if any.
-    pub failure: Option<Failure>,
+    /// How it ended; `None` until a terminal state.
+    pub terminal: Option<Terminal>,
     /// The artifact written at B3 (visible from B4).
     pub artifact: Option<ArtifactRef>,
     /// The reservation debited from every ledger at B1.
@@ -103,6 +103,14 @@ pub struct InvocationStatus {
     pub revoked_after_effect: bool,
 }
 
+impl InvocationStatus {
+    /// Why it released its reservation, when `Released`.
+    #[must_use]
+    pub fn release_reason(&self) -> Option<ReleaseReason> {
+        self.terminal.and_then(Terminal::release_reason)
+    }
+}
+
 impl From<&InvocationRecord> for InvocationStatus {
     fn from(record: &InvocationRecord) -> Self {
         Self {
@@ -111,9 +119,7 @@ impl From<&InvocationRecord> for InvocationStatus {
             capability: record.capability,
             session: record.session,
             state: record.state,
-            release_reason: record.release_reason,
-            outcome: record.outcome,
-            failure: record.failure,
+            terminal: record.terminal,
             artifact: record.artifact,
             reserved: record.reserved,
             debited: record.debited,
@@ -124,11 +130,14 @@ impl From<&InvocationRecord> for InvocationStatus {
 }
 
 /// What the producer returned, stored at B3.
+///
+/// The artifact id is not the caller's to choose: the store publishes the
+/// capture under the invocation's own id ([`artifact_ref`]), so two
+/// invocations can never claim one artifact and a roll-forward publish
+/// can never collide.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Transfer<'a> {
-    /// The artifact id the capture will publish under.
-    pub artifact: ArtifactRef,
     /// The producer's envelope, stored verbatim.
     pub envelope: &'a [u8],
     /// Its evidence identity.
@@ -146,17 +155,10 @@ pub struct Transfer<'a> {
 }
 
 impl<'a> Transfer<'a> {
-    /// A transfer of `envelope` into `artifact`, costing `actual`, with no
-    /// text view.
+    /// A transfer of `envelope`, costing `actual`, with no text view.
     #[must_use]
-    pub const fn new(
-        artifact: ArtifactRef,
-        envelope: &'a [u8],
-        source: SourceRef,
-        actual: Cost,
-    ) -> Self {
+    pub const fn new(envelope: &'a [u8], source: SourceRef, actual: Cost) -> Self {
         Self {
-            artifact,
             envelope,
             source,
             text_view: None,
@@ -168,6 +170,14 @@ impl<'a> Transfer<'a> {
     }
 }
 
+/// The artifact a capture by `invocation` publishes under: the
+/// invocation id's bytes. Invocation ids are unique in the store (B1
+/// refuses a taken one), so artifact ids are too.
+#[must_use]
+pub const fn artifact_ref(invocation: InvocationId) -> ArtifactRef {
+    ArtifactRef::from_bytes(invocation.to_bytes())
+}
+
 /// How a B5 settlement ends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -175,7 +185,9 @@ pub enum SettleOutcome {
     /// From B4: the capture is published; settle the consumption recorded
     /// at B3.
     Success,
-    /// From B2: the producer started and failed; settle `actual`.
+    /// From B2: the producer started and failed; settle `actual`. The
+    /// failure must be one a started producer reports: `TransferFailed`,
+    /// `ExtractionFailed`, `DeadlineExceeded`, or `Cancelled`.
     Failed {
         /// What the caller observes.
         failure: Failure,
@@ -259,7 +271,7 @@ impl Store {
         self.put_invocation(&mut tx, &record)?;
         let idem = IdemRecord {
             invocation: intent.invocation,
-            request_digest: intent.request_digest,
+            request_binding: request_binding(intent),
         };
         self.put(&mut tx, slot::IDEM, &idem_key, tenant_keys.meta(), &idem)?;
         self.commit(tx, Some(Boundary::PersistIntent))?;
@@ -269,7 +281,7 @@ impl Store {
     /// The answer to a request whose idempotency key is already bound: the
     /// stored invocation for the same digest, a conflict for another.
     fn replay(&self, tx: &WriteTx<'_>, intent: &Intent<'_>, idem: &IdemRecord) -> Result<Begin> {
-        if idem.request_digest != intent.request_digest {
+        if idem.request_binding != request_binding(intent) {
             return Ok(Begin::Conflict);
         }
         let record = self
@@ -313,11 +325,8 @@ impl Store {
             grant_chain: chain,
             ledgers,
             reserved: reservation.cost(),
-            request_digest: intent.request_digest,
             state: InvocationState::IntentPersisted,
-            release_reason: None,
-            outcome: None,
-            failure: None,
+            terminal: None,
             actual: None,
             debited: None,
             artifact: None,
@@ -390,4 +399,48 @@ impl Store {
         let key = record_key::store::invocation(self.keys.index(), record.id)?;
         self.put_global(tx, slot::INVOCATION, &key, record)
     }
+}
+
+/// The store's binding of `intent` for its idempotency entry: SHA-256
+/// over a domain label, the caller's request digest, and every field the
+/// store authorizes on (designated grant, capability, session, target,
+/// declared cost), each length-prefixed or fixed-width.
+///
+/// WHY in the store: the idempotency contract says the same key under a
+/// different grant is a conflict. Binding the grant here makes that true
+/// whatever the caller folded into its own digest.
+fn request_binding(intent: &Intent<'_>) -> [u8; 32] {
+    let authz = &intent.authz;
+    let mut hash = Sha256::new();
+    hash.update(b"dioptron/v1/idem-binding");
+    hash.update(intent.request_digest);
+    hash.update(authz.grant.to_bytes());
+    hash.update(length_prefixed(authz.capability.name().as_bytes()));
+    match authz.session {
+        Some(session) => {
+            hash.update([1]);
+            hash.update(session.to_bytes());
+        }
+        None => hash.update([0]),
+    }
+    match authz.target {
+        Some(target) => {
+            hash.update([1]);
+            hash.update(length_prefixed(target.as_bytes()));
+        }
+        None => hash.update([0]),
+    }
+    for &dimension in Dimension::ALL {
+        hash.update(authz.declared.get(dimension).to_le_bytes());
+    }
+    hash.finalize().into()
+}
+
+/// `bytes` behind its u64 length.
+fn length_prefixed(bytes: &[u8]) -> Vec<u8> {
+    let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let mut out = Vec::with_capacity(bytes.len().saturating_add(8));
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(bytes);
+    out
 }
