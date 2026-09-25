@@ -121,4 +121,105 @@ pub enum Error {
         #[snafu(implicit)]
         location: snafu::Location,
     },
+
+    /// A fixture script or one of the files it names cannot be read.
+    #[snafu(display("cannot read fixture {}", path.display()))]
+    FixtureIo {
+        /// The file.
+        path: PathBuf,
+        /// The filesystem error.
+        source: io::Error,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A fixture script line does not parse.
+    #[snafu(display("fixture {} line {line}: {reason}", path.display()))]
+    FixtureSyntax {
+        /// The script.
+        path: PathBuf,
+        /// The 1-based line number; 0 for the path itself.
+        line: usize,
+        /// What is wrong with it.
+        reason: String,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The custody store refused or failed an operation.
+    #[snafu(display("custody store operation failed"))]
+    Store {
+        /// The store error.
+        #[snafu(source(from(phylake::Error, Box::new)))]
+        source: Box<phylake::Error>,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// An authorization decision could not be made.
+    #[snafu(display("authorization decision failed"))]
+    Authz {
+        /// The authorization error.
+        #[snafu(source(from(epitrope::Error, Box::new)))]
+        source: Box<epitrope::Error>,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A read through the store's authorization view failed.
+    #[snafu(display("authorization view read failed"))]
+    View {
+        /// The view error.
+        #[snafu(source(from(epitrope::ViewError, Box::new)))]
+        source: Box<epitrope::ViewError>,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A contract value could not be encoded.
+    #[snafu(display("contract encoding failed"))]
+    Encode {
+        /// The contract error.
+        #[snafu(source(from(syntheke::Error, Box::new)))]
+        source: Box<syntheke::Error>,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A blocking store task panicked or was cancelled.
+    #[snafu(display("a store task did not complete"))]
+    Task {
+        /// The join error.
+        #[snafu(source(from(tokio::task::JoinError, Box::new)))]
+        source: Box<tokio::task::JoinError>,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The command line is not valid.
+    #[snafu(display("{message}"))]
+    Usage {
+        /// What is wrong.
+        message: String,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The async runtime could not be built.
+    #[snafu(display("cannot start the async runtime"))]
+    Runtime {
+        /// The runtime error.
+        source: io::Error,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
 }
