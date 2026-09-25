@@ -63,12 +63,15 @@ jobs:
           cache: false
       # WHY build-mode none: CodeQL extracts Rust from source without a
       # traced build, so there is no autobuild step to run.
+      # WHY config-file: it excludes test files (tests.rs, tests/,
+      # test_support.rs) from the scan; the reason is in the config file.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@dd677812177e0c29f9c970a6c58d8607ae1bfefd # v4
         with:
           languages: rust
           build-mode: none
           queries: +security-extended
+          config-file: ./.github/codeql/codeql-config.yml
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@dd677812177e0c29f9c970a6c58d8607ae1bfefd # v4
         with:

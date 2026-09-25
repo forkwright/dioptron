@@ -38,6 +38,8 @@ dioptron/
 
 Follow kanon standards (canonical source: `kanon/crates/basanos/standards/`). Key docs: `RUST.md`, `TESTING.md`, `SECURITY.md`, `ARCHITECTURE.md`, `WRITING.md`.
 
+Test layout: test modules live in `tests.rs` files (`#[cfg(test)] mod tests;`) or `tests/` directories, never inline, and test-only helpers live in `test_support.rs`; CodeQL skips those paths (`.github/codeql/codeql-config.yml`).
+
 ## Key decisions (locked)
 
 - **Peer tenancy**: operator, agents, sub-agents are all tenant classes with the same capability surface. Differences are grants, not capabilities.
