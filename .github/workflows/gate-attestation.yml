@@ -45,12 +45,13 @@ jobs:
       # `kanon lint --writing README.md`, and the manifest writing pass) remain
       # authoritative in .kanon-ci.toml and are not claimed by this gate.
 
-      # WHY true now that a Cargo workspace exists: a docs-only diff (*.md,
-      # docs/**, llms.txt) cannot change what cargo builds, and docs.yml runs
-      # the corpus checks on every PR. The exemption is only sound while
-      # branch protection requires the `docs` context next to `gate / gate`;
-      # without it a docs-only PR merges on a gate that verified nothing.
-      docs_only_exemption: true
+      # WHY false: a docs-only diff (*.md, docs/**, llms.txt) cannot change
+      # what cargo builds, but with the exemption on, such a PR passes
+      # `gate / gate` without the gate running any check. docs.yml (job
+      # `docs`) runs the corpus checks on every PR, yet nothing blocks a merge
+      # on it until branch protection requires it. Flip this to true only
+      # after the `docs` context is a required check next to `gate / gate`.
+      docs_only_exemption: false
       ai_attribution_check: true
       needs_fleet_repo_token: false
       rust_cache_key: "dioptron-gate"
