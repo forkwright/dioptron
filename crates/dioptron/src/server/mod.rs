@@ -56,7 +56,7 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 
 /// Frame-sized buffers one admitted connection can hold at once, beyond
 /// one per in-flight request (see [`Limits::worst_case_bytes`]).
-const FRAMES_PER_CONNECTION: u64 = 6;
+const FRAMES_PER_CONNECTION: u64 = 7;
 
 /// Bounds applied by the server. [`Limits::default`] gives the contract
 /// defaults; [`Server::bind`] clamps every field into its valid range.
@@ -66,20 +66,21 @@ const FRAMES_PER_CONNECTION: u64 = 6;
 /// The frame buffers peers can make the server hold at once are bounded by
 ///
 /// ```text
-/// max_connections × (max_in_flight + 6) × max_frame
+/// max_connections × (max_in_flight + 7) × max_frame
 /// ```
 ///
 /// which [`Limits::worst_case_bytes`] computes. Per admitted connection,
 /// each in-flight request holds one frame (its decoded request, then its
-/// response). The reader holds up to four more: the frame being read, its
-/// aligned validation copy, and the value being decoded from it, plus one
-/// decoded frame queued for the connection loop. Writing a response holds
-/// two encoded copies of it. A connection still in the handshake holds
-/// less, since its frames are capped at 4 KiB. Memory a dispatcher
-/// allocates for its own work is outside this bound.
+/// response). The reader holds up to five more: while decoding, the frame
+/// being read, its aligned validation copy, the decoded value, and the
+/// canonical re-encoding the decoder compares against, plus one decoded
+/// frame queued for the connection loop. Writing a response holds two
+/// encoded copies of it. A connection still in the handshake holds less,
+/// since its frames are capped at 4 KiB. Memory a dispatcher allocates for
+/// its own work is outside this bound.
 ///
 /// The defaults keep the bound within [`Limits::DEFAULT_MEMORY_BUDGET`]
-/// (256 MiB): 16 connections × (10 + 6) × 1 MiB. The 1 MiB frame bound is
+/// (256 MiB): 16 connections × (9 + 7) × 1 MiB. The 1 MiB frame bound is
 /// the contract's default negotiated maximum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -113,7 +114,7 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             max_connections: 16,
-            max_in_flight: 10,
+            max_in_flight: 9,
             handshake_timeout: Duration::from_millis(u64::from(HANDSHAKE_TIMEOUT_MS)),
             frame_timeout: Duration::from_secs(10),
             idle_timeout: Duration::from_mins(5),

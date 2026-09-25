@@ -193,9 +193,9 @@ async fn shutdown_signal_completes_on_sigterm() -> TestResult {
 
 #[test]
 fn default_limits_stay_within_the_memory_budget() {
-    // 16 connections × (10 in flight + 6 per-connection frames) × 1 MiB,
+    // 16 connections × (9 in flight + 7 per-connection frames) × 1 MiB,
     // computed independently of the helper.
-    let expected: u64 = 16 * (10 + 6) * 1024 * 1024;
+    let expected: u64 = 16 * (9 + 7) * 1024 * 1024;
     assert_eq!(Limits::default().worst_case_bytes(), expected, "formula");
     assert_eq!(expected, 256 * 1024 * 1024, "exactly the budget");
     assert!(
@@ -226,7 +226,7 @@ fn worst_case_bytes_uses_clamped_limits_and_saturates() {
     };
     assert_eq!(
         zero.worst_case_bytes(),
-        (1 + 6) * 4096,
+        (1 + 7) * 4096,
         "one connection, one request, the 4 KiB floor"
     );
 }
