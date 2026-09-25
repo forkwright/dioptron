@@ -43,10 +43,11 @@ tracing.workspace = true
 # break a contract invariant, which the contract encoder refuses to build.
 rkyv.workspace = true
 # WHY rustix (dev only): the shutdown-signal test sends SIGTERM to its own
-# process through a safe call instead of spawning a `kill` binary. The same
-# rustix version is already in the tree under tempfile; `process` adds only
-# the kill and getpid calls.
-rustix = { workspace = true, features = ["process"] }
+# process, and the process tests signal the daemon child and read the
+# effective uid, through safe calls instead of spawning a `kill` binary.
+# The same rustix version is already in the tree under tempfile; `process`
+# adds only the kill, getpid, and geteuid calls.
+rustix = { workspace = true, features = ["std", "process"] }
 tempfile.workspace = true
 # WHY xenos (dev only): the process-level acceptance tests drive the
 # daemon binary only through this independent client.

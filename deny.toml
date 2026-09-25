@@ -17,10 +17,10 @@ ignore = []
 # need; cargo-deny warns on allowances no crate uses. Each implementation
 # slice adds the licenses its new dependencies need, with the dependency
 # that needs them.
-# - MIT, Apache-2.0: rkyv and its support crates (MIT), the RustCrypto
-#   crates, secrecy, zeroize, snafu, toml, getrandom, tempfile, rustix,
-#   tokio, tracing, fjall and its storage crates, and their build dependencies (all offer
-#   MIT or Apache-2.0).
+# - MIT, Apache-2.0: rkyv and its support crates, the RustCrypto crates,
+#   secrecy, zeroize, snafu, getrandom, tempfile, rustix, toml, tokio,
+#   tracing, fjall and its storage crates, and their build dependencies
+#   (all offer MIT or Apache-2.0).
 # - BSD-3-Clause: ed25519-dalek, curve25519-dalek, and subtle (Ed25519
 #   tenant authentication: the daemon verifies, xenos signs).
 # - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
