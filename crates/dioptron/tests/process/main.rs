@@ -4,7 +4,9 @@
 //!
 //! Tests that move the daemon's clock need the `test-clock` feature;
 //! crash tests need the `failpoints` feature. The gate runs with
-//! `--all-features`, so both run there.
+//! `--all-features`, so both run there. The `features` tests prove the
+//! opposite (the environment alone enables neither) and run in a
+//! default-features build.
 
 // NOTE: clippy's tests_outside_test_module (denied workspace-wide) also
 // applies to integration test crates, hence the cfg(test) modules.
@@ -12,6 +14,8 @@
 mod crash;
 #[cfg(test)]
 mod dry_run;
+#[cfg(test)]
+mod features;
 #[cfg(test)]
 mod flow;
 #[cfg(test)]

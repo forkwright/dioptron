@@ -2,10 +2,13 @@
 //! call (contract § Idempotency).
 #![expect(clippy::expect_used, reason = "test assertions must fail loudly")]
 
-use syntheke::{Capability, Failure, Mode, RequestBody, ResponseBody};
+use syntheke::{
+    Capability, DenyCode, Failure, GrantRevokeRequest, Mode, RequestBody, ResponseBody,
+};
 
 use crate::test_support::{
-    DOWN, Harness, OK, ROOT, agent, capture, child_grant, issue, open_session, operator,
+    DOWN, ENVELOPE, Harness, OK, ROOT, TEXT, agent, bytes, capture, child_grant, issue,
+    open_session, operator,
 };
 
 #[test]
@@ -115,5 +118,71 @@ fn replayed_session_and_grant_calls_return_the_same_objects() {
     );
     assert_eq!(issued_again, issued, "the replay names the same grant");
     drop(client);
+    daemon.stop();
+}
+
+/// Whether `haystack` holds `needle` as a contiguous run.
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+#[test]
+fn replay_after_revocation_is_denied_and_returns_no_stored_content() {
+    let harness = Harness::with_cast();
+    let daemon = harness.start();
+    let mut operator_client = harness.connect(&operator());
+    let grant = issue(
+        &harness,
+        &mut operator_client,
+        child_grant(
+            agent().id,
+            vec![Capability::SessionCreate, Capability::Capture],
+        ),
+        "issue-agent",
+    );
+    let mut client = harness.connect(&agent());
+    let session = open_session(&harness, &mut client, grant, "agent-session");
+    let request = harness.request(
+        grant,
+        Some("capture-then-revoke"),
+        Mode::Execute,
+        capture(session, OK),
+    );
+    let first = client.call(&request).expect("capture");
+    let revoke = harness.request(
+        ROOT,
+        Some("revoke-agent"),
+        Mode::Execute,
+        RequestBody::GrantRevoke(GrantRevokeRequest {
+            target_grant: grant,
+        }),
+    );
+    let revoked = operator_client.call(&revoke).expect("revoke");
+
+    let replay = client.call(&request).expect("replay");
+
+    assert!(
+        matches!(first.body, ResponseBody::Captured(_)),
+        "the first call captures: {first:?}"
+    );
+    assert!(
+        matches!(revoked.body, ResponseBody::GrantRevoked(_)),
+        "the operator revokes: {revoked:?}"
+    );
+    assert_eq!(
+        replay.body,
+        ResponseBody::Failed(Failure::denied(DenyCode::GrantRevoked)),
+        "the replay re-authorizes and reports the revocation"
+    );
+    assert_eq!(replay.invocation, None, "a refusal names no invocation");
+    let wire = bytes(&replay);
+    assert!(
+        !contains(&wire, TEXT.as_bytes()) && !contains(&wire, ENVELOPE),
+        "no stored content crosses the wire"
+    );
+    assert_eq!(harness.calls(), 1, "the producer ran once");
+    drop((client, operator_client));
     daemon.stop();
 }

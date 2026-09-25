@@ -189,6 +189,47 @@ fn grant_is_refused_outside_its_validity_window_as_the_clock_moves() {
     daemon.stop();
 }
 
+#[cfg(feature = "test-clock")]
+#[test]
+fn expiry_of_a_running_call_before_effect_releases_it_as_expired() {
+    use crate::test_support::NOW_MS;
+
+    let harness = Harness::with_cast();
+    let daemon = harness.start();
+    let mut operator_client = harness.connect(&operator());
+    let mut expiring = child_grant(
+        agent().id,
+        vec![Capability::SessionCreate, Capability::Capture],
+    );
+    expiring.expires_at = Timestamp::from_unix_millis(NOW_MS.saturating_add(10_000));
+    let grant = issue(&harness, &mut operator_client, expiring, "issue-expiring");
+    let mut client = harness.connect(&agent());
+    let session = open_session(&harness, &mut client, grant, "agent-session");
+    let request = harness.request(
+        grant,
+        Some("running"),
+        Mode::Execute,
+        capture(session, STALL),
+    );
+
+    client.send_request(&request).expect("send");
+    harness.wait_calls(1);
+    harness.set_clock(NOW_MS.saturating_add(20_000));
+    let response = client.recv_response().expect("capture response");
+
+    assert_eq!(
+        response.body,
+        denied(DenyCode::GrantExpired),
+        "a running call whose grant expires ends as expired, not revoked"
+    );
+    assert!(
+        response.invocation.is_some(),
+        "the invocation was persisted"
+    );
+    drop((client, operator_client));
+    daemon.stop();
+}
+
 #[test]
 fn revoking_a_parent_invalidates_descendants_and_stands_on_replay() {
     let harness = Harness::with_cast();

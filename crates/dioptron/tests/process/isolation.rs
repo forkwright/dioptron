@@ -3,14 +3,15 @@
 #![expect(clippy::expect_used, reason = "test assertions must fail loudly")]
 
 use syntheke::{
-    ArtifactRef, AuditQueryRequest, AuditScope, Capability, Failure, GrantId, Mode, QueryRequest,
-    ReadRequest, Request, RequestBody, ResponseBody, SessionForkRequest, SessionId,
+    ArtifactRef, AuditQueryRequest, AuditScope, Capability, DenyCode, Failure, GrantId,
+    IngestRequest, Mode, QueryRequest, ReadRequest, Request, RequestBody, ResponseBody,
+    SessionForkRequest, SessionId,
 };
 
 use xenos::Client;
 
 use crate::test_support::{
-    Harness, OK, agent, bytes, capture, child_grant, issue, open_session, operator, stranger,
+    Harness, OK, ROOT, agent, bytes, capture, child_grant, issue, open_session, operator, stranger,
 };
 
 const EVERY: [Capability; 6] = [
@@ -219,5 +220,44 @@ fn audit_reads_stay_inside_the_granted_scope() {
         "including the agent's records"
     );
     drop((owner, peer, operator_client));
+    daemon.stop();
+}
+
+#[test]
+fn ingest_is_not_supported_whatever_the_artifact() {
+    let harness = Harness::with_cast();
+    let daemon = harness.start();
+    let mut operator_client = harness.connect(&operator());
+    let (agent_grant, _) = cast_grants(&harness, &mut operator_client);
+    let mut owner = harness.connect(&agent());
+    let session = open_session(&harness, &mut owner, agent_grant, "agent-session");
+    let request = harness.request(
+        agent_grant,
+        Some("agent-capture"),
+        Mode::Execute,
+        capture(session, OK),
+    );
+    let ResponseBody::Captured(outcome) = owner.call(&request).expect("capture").body else {
+        panic!("capture failed");
+    };
+    let mut ingest = |key: &str, artifact| {
+        let body = RequestBody::Ingest(IngestRequest {
+            artifact_ref: artifact,
+        });
+        let request = pinned(harness.request(ROOT, Some(key), Mode::Execute, body));
+        bytes(&operator_client.call(&request).expect("ingest"))
+    };
+
+    let existing = ingest("ingest-a", outcome.artifact_ref);
+    let missing = ingest("ingest-b", ArtifactRef::from_bytes([0x69; 16]));
+
+    let refusal = bytes(&syntheke::Response {
+        request_id: 4_242,
+        invocation: None,
+        body: ResponseBody::Failed(Failure::denied(DenyCode::NotSupported)),
+    });
+    assert_eq!(existing, refusal, "Ingest is refused as not supported");
+    assert_eq!(existing, missing, "the artifact is never consulted");
+    drop((owner, operator_client));
     daemon.stop();
 }
