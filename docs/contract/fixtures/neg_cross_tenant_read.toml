@@ -7,6 +7,7 @@ clause = "A missing resource and a resource the caller may not see return the id
 capability = "Read"
 mode = "Execute"
 tenant = "01j8k7r3v9zq4n5m6p7s8tnt0f"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0f"
 artifact_ref = "01j8k7r3v9zq4n5m6p7s8art0a"
 
 [expected]

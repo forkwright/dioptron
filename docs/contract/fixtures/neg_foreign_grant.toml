@@ -1,0 +1,16 @@
+[meta]
+name = "neg_foreign_grant"
+kind = "negative"
+clause = "A designated grant that does not exist and a grant held by another tenant return the identical NotFoundOrDenied response, so a request cannot probe for another tenant's grant."
+
+[request]
+capability = "Read"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0f"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+artifact_ref = "01j8k7r3v9zq4n5m6p7s8art0a"
+
+[expected]
+outcome = "NotFoundOrDenied"
+indistinguishable = true
+echoes_ref = false

@@ -7,6 +7,7 @@ clause = "A revocation record names the revoked grant, the audit sequence at whi
 capability = "GrantRevoke"
 mode = "Execute"
 tenant = "01j8k7r3v9zq4n5m6p7s8tnt0a"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0a"
 target_grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
 idempotency_key = "11b2c3d4e5f60718293a4b5c6d7e8f90"
 

@@ -13,13 +13,18 @@ all-features = true
 ignore = []
 
 [licenses]
-# WHY only the workspace's own license: the skeleton crates have no
-# external dependencies, and cargo-deny warns on allowances no crate uses.
-# Each implementation slice adds the licenses its new dependencies need
-# (for example MIT, Apache-2.0, BSD-3-Clause, Unicode-3.0), with the
-# dependency that needs them.
+# WHY this list: the workspace's own license plus what current dependencies
+# need; cargo-deny warns on allowances no crate uses. Each implementation
+# slice adds the licenses its new dependencies need, with the dependency
+# that needs them.
+# - MIT, Apache-2.0: rkyv and its support crates (MIT), snafu, toml, and
+#   their build dependencies (dual-licensed MIT OR Apache-2.0).
+# - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
 allow = [
+    "Apache-2.0",
     "LicenseRef-PolyForm-Noncommercial-1.0.0",
+    "MIT",
+    "Unicode-3.0",
 ]
 confidence-threshold = 0.8
 
@@ -30,6 +35,17 @@ wildcards = "deny"
 # version. Publishable crates still pin internal dependencies by version,
 # declared once in [workspace.dependencies].
 allow-wildcard-paths = true
+# WHY: the ecosystem is mid-migration from syn 2 to syn 3. rkyv_derive
+# 0.8.18, bytecheck_derive 0.8.3, and ptr_meta_derive 0.3.2 use syn 3; the
+# latest snafu-derive (0.9.2) and munge_macro (0.4.7, inside rkyv) still use
+# syn 2. Both copies are proc-macro build dependencies and never reach a
+# built artifact. The one way to a single syn is holding rkyv at 0.8.17 with
+# bytecheck 0.8.2 and ptr_meta 0.3.1, which pins the wire validator below
+# its current release to dedupe a build tool; rejected. Retire this entry
+# when snafu-derive and munge_macro release on syn 3.
+skip = [
+    { crate = "syn@2", reason = "proc-macro build dependency; snafu-derive and munge_macro have no syn 3 release yet" },
+]
 
 [sources]
 unknown-registry = "deny"
