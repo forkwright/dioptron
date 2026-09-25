@@ -6,7 +6,8 @@
 //! [`crate::crypto::seal`], binding it to its schema version, record kind,
 //! key id, keyspace, and record key.
 //!
-//! Two sealing scopes exist:
+//! Two sealing scopes exist (the normative table is
+//! `docs/design/custody-store.md`, "Sealing scope"):
 //!
 //! - store-sealed (root-derived keys): tenants, grants, revocations,
 //!   sessions, invocations, ledgers, artifact locators, and audit stubs.
@@ -24,7 +25,6 @@
 //! cannot distinguish absence from a record the caller may not see.
 
 mod audit;
-mod audit_query;
 mod claim;
 mod codec;
 mod directory;
@@ -71,16 +71,18 @@ use crate::error::{
 };
 use crate::keyfile::RootKey;
 
-pub use self::audit::AuditEntry;
-pub use self::audit_query::{AuditQuery, AuditRead};
-pub use self::claim::{Claimed, IdemClaim};
+pub use self::audit::{AuditEvent, AuditQuery};
+pub use self::claim::{AuditNote, AuditOutcome, Claimed, IdemClaim};
 pub use self::directory::{
     GrantIssue, IssueOutcome, NewSession, RevokeGrant, RootGrant, TenantRegistration,
 };
 pub use self::failpoint::{Boundary, Crash, Failpoint, NoFailpoints, Phase};
-pub use self::invocation::{Begin, Intent, InvocationStatus, SettleOutcome, Transfer};
+pub use self::invocation::{
+    Begin, Intent, InvocationStatus, SettleOutcome, Transfer, artifact_ref,
+};
 pub use self::meta::SCHEMA_VERSION;
 pub use self::read::ArtifactInfo;
+pub use self::records::Terminal;
 pub use self::recovery::RecoveryReport;
 pub use self::view::{StoreSnapshot, TenantDirectory, TenantEntry};
 

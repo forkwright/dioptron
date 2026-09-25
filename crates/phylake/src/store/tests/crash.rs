@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use syntheke::{Cost, InvocationState, ReleaseReason};
+use syntheke::{Cost, InvocationState, OutcomeKind, ReleaseReason};
 
 use crate::Error;
 use crate::store::test_support::{
@@ -13,7 +13,8 @@ use crate::store::test_support::{
     capture, count, dump, idem, invocation, ledger_usage, source,
 };
 use crate::store::{
-    Begin, Boundary, Intent, Phase, RecoveryReport, SettleOutcome, Store, Transfer,
+    AuditEvent, Begin, Boundary, Intent, Phase, RecoveryReport, SettleOutcome, Store, Terminal,
+    Transfer,
 };
 
 /// The state recovery must reach.
@@ -42,7 +43,7 @@ fn drive(store: &Store, producer: &ProducerCounter) -> Result<(), Error> {
     assert!(matches!(begin, Begin::Persisted(_)), "{begin:?}");
     store.dispatch(invocation(1))?;
     producer.call();
-    let transfer = Transfer::new(artifact(0x71), ENVELOPE, source(), ACTUAL);
+    let transfer = Transfer::new(ENVELOPE, source(), ACTUAL);
     store.complete_transfer(invocation(1), &transfer)?;
     store.publish(invocation(1))?;
     store.settle(invocation(1), SettleOutcome::Success)?;
@@ -111,18 +112,20 @@ fn expected_report(boundary: Boundary, phase: Phase, expected: Expected) -> Reco
 
 fn assert_state(store: &Store, expected: Expected, case: &str) {
     let status = store.invocation(invocation(1)).expect("read");
-    let terminal_audits = store
+    let audits: Vec<AuditEvent> = store
         .audit_records(AGENT, None, 100)
         .expect("audit")
         .into_iter()
-        .filter(|record| record.invocation == invocation(1))
-        .count();
+        .filter(|event| event.record.invocation == invocation(1))
+        .collect();
     let visible = store
-        .read_artifact(artifact(0x71), 0, 4096)
+        .read_artifact(artifact(1), 0, 4096)
         .expect("read")
         .map(|chunk| chunk.bytes);
     let blobs = count(&dump(store), "blobs");
-    match expected {
+    // The exact terminal record, the amount kept, and what each ledger
+    // holds afterward.
+    let (terminal, kept, ledgers) = match expected {
         Expected::Nothing => {
             assert_eq!(status, None, "{case}: no invocation");
             assert_eq!(
@@ -130,51 +133,36 @@ fn assert_state(store: &Store, expected: Expected, case: &str) {
                 vec![Cost::default(); 4],
                 "{case}: no reservation"
             );
-            assert_eq!(terminal_audits, 0, "{case}: nothing audited");
+            assert!(audits.is_empty(), "{case}: nothing audited");
+            return;
         }
-        Expected::Abandoned => {
-            let status = status.expect("recorded");
-            assert_eq!(status.state, InvocationState::Released, "{case}: released");
-            assert_eq!(
-                status.release_reason,
-                Some(ReleaseReason::Abandoned),
-                "{case}: reason"
-            );
-            assert_eq!(
-                ledger_usage(store),
-                vec![Cost::default(); 4],
-                "{case}: released once"
-            );
-            assert_eq!(terminal_audits, 1, "{case}: one terminal audit entry");
-        }
-        Expected::UnknownEffect => {
-            let status = status.expect("recorded");
-            assert_eq!(
-                status.state,
-                InvocationState::UnknownEffect,
-                "{case}: unknown effect"
-            );
-            assert_eq!(
-                status.debited,
-                Some(DECLARED),
-                "{case}: reservation charged"
-            );
-            assert_eq!(
-                ledger_usage(store),
-                vec![DECLARED; 4],
-                "{case}: charged once"
-            );
-            assert_eq!(terminal_audits, 1, "{case}: one terminal audit entry");
-            assert_eq!(blobs, 0, "{case}: an uncommitted blob is discarded");
-        }
-        Expected::Settled => {
-            let status = status.expect("recorded");
-            assert_eq!(status.state, InvocationState::Settled, "{case}: settled");
-            assert_eq!(status.debited, Some(ACTUAL), "{case}: actual kept");
-            assert_eq!(ledger_usage(store), vec![ACTUAL; 4], "{case}: settled once");
-            assert_eq!(terminal_audits, 1, "{case}: one terminal audit entry");
-        }
+        Expected::Abandoned => (
+            Terminal::Released {
+                reason: ReleaseReason::Abandoned,
+            },
+            Cost::default(),
+            Cost::default(),
+        ),
+        Expected::UnknownEffect => (Terminal::UnknownEffect, DECLARED, DECLARED),
+        Expected::Settled => (Terminal::Settled { failure: None }, ACTUAL, ACTUAL),
+    };
+    let status = status.expect("recorded");
+    assert_eq!(status.state, terminal.state(), "{case}: state");
+    assert_eq!(
+        status.terminal,
+        Some(terminal),
+        "{case}: the exact terminal record"
+    );
+    assert_eq!(status.debited, Some(kept), "{case}: amount kept");
+    assert_eq!(
+        ledger_usage(store),
+        vec![ledgers; 4],
+        "{case}: settled or released once"
+    );
+    if expected == Expected::UnknownEffect {
+        assert_eq!(blobs, 0, "{case}: an uncommitted blob is discarded");
     }
+    assert_terminal_audit(&audits, expected, case);
     let expect_visible = expected == Expected::Settled;
     assert_eq!(
         visible.as_deref() == Some(ENVELOPE),
@@ -186,6 +174,29 @@ fn assert_state(store: &Store, expected: Expected, case: &str) {
         expect_visible,
         "{case}: nothing partial is visible"
     );
+}
+
+/// The one terminal audit entry: its state, reply kind, and release
+/// reason, exactly.
+fn assert_terminal_audit(audits: &[AuditEvent], expected: Expected, case: &str) {
+    let (state, outcome, reason) = match expected {
+        Expected::Abandoned => (
+            InvocationState::Released,
+            OutcomeKind::Cancelled,
+            Some(ReleaseReason::Abandoned),
+        ),
+        Expected::UnknownEffect => (
+            InvocationState::UnknownEffect,
+            OutcomeKind::UnknownEffect,
+            None,
+        ),
+        _ => (InvocationState::Settled, OutcomeKind::Success, None),
+    };
+    assert_eq!(audits.len(), 1, "{case}: one terminal audit entry");
+    let audit = audits.first().expect("the terminal audit entry");
+    assert_eq!(audit.record.state, state, "{case}: audited state");
+    assert_eq!(audit.record.outcome, outcome, "{case}: audited reply kind");
+    assert_eq!(audit.release_reason, reason, "{case}: audited reason");
 }
 
 /// One test per row of the failure-injection table.

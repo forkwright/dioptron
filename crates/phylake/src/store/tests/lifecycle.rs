@@ -10,7 +10,7 @@ use crate::store::test_support::{
     ACTUAL, AGENT, DECLARED, ENVELOPE, Fixture, G_AGENT, OPERATOR, S_AGENT, artifact, capture,
     ceilings, count, dump, idem, invocation, issue_agent_grant, ledger_usage, source,
 };
-use crate::store::{Begin, Intent, InvocationStatus, SettleOutcome, Store, Transfer};
+use crate::store::{Begin, Intent, InvocationStatus, SettleOutcome, Store, Terminal, Transfer};
 
 /// A digest standing in for the request digest.
 const DIGEST: [u8; 32] = [0xd1; 32];
@@ -38,7 +38,7 @@ fn persist(store: &Store, byte: u8) -> InvocationStatus {
 
 /// The transfer every test capture reports.
 fn transfer() -> Transfer<'static> {
-    let mut transfer = Transfer::new(artifact(0x71), ENVELOPE, source(), ACTUAL);
+    let mut transfer = Transfer::new(ENVELOPE, source(), ACTUAL);
     transfer.text_view = Some("PHYLAKE-CUSTODY-PLAINTEXT-7f3a".to_owned());
     transfer.output_bytes = 30;
     transfer
@@ -93,7 +93,11 @@ fn happy_path_runs_b1_through_b5() {
         .settle(invocation(1), SettleOutcome::Success)
         .expect("B5");
     assert_eq!(status.state, InvocationState::Settled, "B5 state");
-    assert_eq!(status.outcome, Some(OutcomeKind::Success), "outcome");
+    assert_eq!(
+        status.terminal,
+        Some(Terminal::Settled { failure: None }),
+        "a success"
+    );
     assert_eq!(
         status.debited,
         Some(ACTUAL),
@@ -108,6 +112,7 @@ fn happy_path_runs_b1_through_b5() {
         .audit_records(AGENT, None, 100)
         .expect("audit")
         .into_iter()
+        .map(|event| event.record)
         .filter(|record| record.invocation == invocation(1))
         .collect::<Vec<_>>();
     assert_eq!(terminal.len(), 1, "one audit entry, at the terminal state");
@@ -124,7 +129,7 @@ fn published_artifact_reads_whole_and_in_chunks() {
     let store = fixture.seeded();
     publish(&store, 1);
     let info = store
-        .artifact(artifact(0x71))
+        .artifact(artifact(1))
         .expect("read")
         .expect("published");
     assert_eq!(info.owner, AGENT, "owner");
@@ -136,12 +141,12 @@ fn published_artifact_reads_whole_and_in_chunks() {
         "envelope length"
     );
     let whole = store
-        .read_artifact(artifact(0x71), 0, 4096)
+        .read_artifact(artifact(1), 0, 4096)
         .expect("read")
         .expect("published");
     assert_eq!(whole.bytes, ENVELOPE, "the envelope is stored verbatim");
     let chunk = store
-        .read_artifact(artifact(0x71), 12, 10)
+        .read_artifact(artifact(1), 12, 10)
         .expect("read")
         .expect("published");
     assert_eq!(chunk.bytes, b"PHYLAKE-CU", "a chunk is a slice");
@@ -151,7 +156,7 @@ fn published_artifact_reads_whole_and_in_chunks() {
         "chunks report the total"
     );
     let tail = store
-        .read_artifact(artifact(0x71), 500, 10)
+        .read_artifact(artifact(1), 500, 10)
         .expect("read")
         .expect("published");
     assert!(tail.bytes.is_empty(), "a chunk past the end is empty");
@@ -162,7 +167,7 @@ fn published_artifact_reads_whole_and_in_chunks() {
         .expect("session exists");
     assert_eq!(
         page.result_refs,
-        [artifact(0x71)],
+        [artifact(1)],
         "the session index lists it"
     );
     assert!(!page.more, "one result");
@@ -180,12 +185,12 @@ fn transfer_complete_blob_is_not_visible() {
     let blobs = count(&dump(&store), "blobs");
     assert_eq!(blobs, 1, "the blob is written at B3");
     assert_eq!(
-        store.artifact(artifact(0x71)).expect("read"),
+        store.artifact(artifact(1)).expect("read"),
         None,
         "no side record read"
     );
     assert_eq!(
-        store.read_artifact(artifact(0x71), 0, 16).expect("read"),
+        store.read_artifact(artifact(1), 0, 16).expect("read"),
         None,
         "no envelope read"
     );
@@ -285,8 +290,13 @@ fn dispatched_failure_settles_actual_cost() {
         )
         .expect("B5");
     assert_eq!(status.state, InvocationState::Settled, "settled");
-    assert_eq!(status.failure, Some(failure), "the failure is recorded");
-    assert_eq!(status.outcome, Some(OutcomeKind::TransferFailed), "kind");
+    assert_eq!(
+        status.terminal,
+        Some(Terminal::Settled {
+            failure: Some(failure)
+        }),
+        "the failure is recorded"
+    );
     assert_eq!(ledger_usage(&store), all(ACTUAL), "actual cost kept");
 }
 
@@ -331,14 +341,16 @@ fn release_returns_the_whole_reservation() {
         .expect("release");
     assert_eq!(status.state, InvocationState::Released, "released");
     assert_eq!(
-        status.release_reason,
-        Some(ReleaseReason::Revoked),
-        "reason"
+        status.terminal,
+        Some(Terminal::Released {
+            reason: ReleaseReason::Revoked
+        }),
+        "the reason is the record"
     );
     assert_eq!(
-        status.failure,
+        status.terminal.and_then(Terminal::reply_failure),
         Some(Failure::denied(DenyCode::GrantRevoked)),
-        "a revoked release reads as a revoked grant"
+        "a revoked release replies as a revoked grant"
     );
     assert_eq!(
         ledger_usage(&store),
@@ -462,6 +474,7 @@ fn refused_call_writes_only_its_audit_entry() {
     let records = store.audit_records(AGENT, None, 100).expect("audit");
     let denied = records
         .iter()
+        .map(|event| &event.record)
         .find(|record| record.invocation == invocation(3))
         .expect("the refusal is audited");
     assert_eq!(denied.seq, audit_seq, "sequence");
@@ -572,13 +585,11 @@ fn reads_of_missing_records_are_absent() {
 fn session_query_pages_in_artifact_order() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
-    for (byte, reference) in [(1, 0x73), (2, 0x71), (3, 0x72)] {
+    for byte in [3, 1, 2] {
         persist(&store, byte);
         store.dispatch(invocation(byte)).expect("B2");
-        let mut transfer = transfer();
-        transfer.artifact = artifact(reference);
         store
-            .complete_transfer(invocation(byte), &transfer)
+            .complete_transfer(invocation(byte), &transfer())
             .expect("B3");
         store.publish(invocation(byte)).expect("B4");
     }
@@ -586,17 +597,13 @@ fn session_query_pages_in_artifact_order() {
         .session_artifacts(S_AGENT, None, 2)
         .expect("query")
         .expect("session");
-    assert_eq!(
-        first.result_refs,
-        [artifact(0x71), artifact(0x72)],
-        "first page"
-    );
+    assert_eq!(first.result_refs, [artifact(1), artifact(2)], "first page");
     assert!(first.more, "a third result remains");
     let second = store
-        .session_artifacts(S_AGENT, Some(artifact(0x72)), 2)
+        .session_artifacts(S_AGENT, Some(artifact(2)), 2)
         .expect("query")
         .expect("session");
-    assert_eq!(second.result_refs, [artifact(0x73)], "second page");
+    assert_eq!(second.result_refs, [artifact(3)], "second page");
     assert!(!second.more, "no more");
     assert_eq!(
         count(&dump(&store), "blobs"),
@@ -606,75 +613,36 @@ fn session_query_pages_in_artifact_order() {
 }
 
 #[test]
-fn two_pending_captures_cannot_publish_one_artifact_id() {
-    let fixture = Fixture::new();
-    let store = fixture.seeded();
-    for byte in [1, 2] {
-        persist(&store, byte);
-        store.dispatch(invocation(byte)).expect("B2");
-        store
-            .complete_transfer(invocation(byte), &transfer())
-            .expect("B3");
-    }
-    store.publish(invocation(1)).expect("first publish");
-    let before = dump(&store);
-    let error = store.publish(invocation(2)).expect_err("second publish");
-    assert!(
-        matches!(
-            error,
-            Error::Conflict {
-                what: "artifact",
-                ..
-            }
-        ),
-        "{error:?}"
-    );
-    assert_eq!(
-        dump(&store),
-        before,
-        "the published artifact is not rewritten"
-    );
-}
-
-#[test]
-fn republishing_an_artifact_id_conflicts() {
-    let fixture = Fixture::new();
-    let store = fixture.seeded();
-    publish(&store, 1);
-    persist(&store, 2);
-    store.dispatch(invocation(2)).expect("B2");
-    let error = store
-        .complete_transfer(invocation(2), &transfer())
-        .expect_err("id taken");
-    assert!(
-        matches!(
-            error,
-            Error::Conflict {
-                what: "artifact",
-                ..
-            }
-        ),
-        "{error:?}"
-    );
-}
-
-#[test]
 fn concurrent_reservations_cannot_overspend() {
+    // WHY eight racers on a ceiling of three, released together by a
+    // barrier: the reservation reads and debits every ledger inside one
+    // write transaction, so exactly three fit however the threads
+    // interleave. A read outside the writing transaction would let
+    // racers that read the same remaining budget all reserve.
+    const RACERS: u8 = 8;
+    const CEILING: u64 = 3;
     let fixture = Fixture::new();
     let store = fixture.seeded();
     let tight = syntheke::GrantId::from_bytes([0xb1; 16]);
-    issue_agent_grant(&store, tight, ceilings(1, 524_288));
-    let results = std::thread::scope(|scope| {
-        let handles = [10_u8, 11].map(|byte| {
-            let store = &store;
-            scope.spawn(move || {
-                let key = idem(byte);
-                store
-                    .begin(&Intent::new(invocation(byte), capture(tight), &key, DIGEST))
-                    .expect("begin")
+    issue_agent_grant(&store, tight, ceilings(CEILING, 524_288));
+    let barrier = std::sync::Barrier::new(usize::from(RACERS));
+    let results: Vec<Begin> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..RACERS)
+            .map(|index| {
+                let (store, barrier) = (&store, &barrier);
+                scope.spawn(move || {
+                    let byte = 0x10_u8.saturating_add(index);
+                    let key = idem(byte);
+                    let intent = Intent::new(invocation(byte), capture(tight), &key, DIGEST);
+                    barrier.wait();
+                    store.begin(&intent).expect("begin")
+                })
             })
-        });
-        handles.map(|handle| handle.join().expect("thread"))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("thread"))
+            .collect()
     });
     let persisted = results
         .iter()
@@ -696,12 +664,22 @@ fn concurrent_reservations_cannot_overspend() {
         .count();
     assert_eq!(
         (persisted, refused),
-        (1, 1),
-        "one fits, one is refused: {results:?}"
+        (3, 5),
+        "three fit, five are refused: {results:?}"
     );
-    let used = epitrope::LedgerView::used(&store.snapshot(), epitrope::LedgerId::Grant(tight))
-        .expect("ledger");
-    assert_eq!(used.fetches, 1, "the ceiling holds");
+    let snapshot = store.snapshot();
+    for ledger in [
+        epitrope::LedgerId::Grant(tight),
+        epitrope::LedgerId::Grant(crate::store::test_support::G_ROOT),
+        epitrope::LedgerId::Session(S_AGENT),
+        epitrope::LedgerId::Tenant(AGENT),
+    ] {
+        let used = epitrope::LedgerView::used(&snapshot, ledger).expect("ledger");
+        assert_eq!(
+            used.fetches, CEILING,
+            "{ledger:?} holds exactly the three reservations"
+        );
+    }
 }
 
 #[test]
@@ -729,11 +707,11 @@ fn operator_capture_in_an_agent_session_indexes_under_the_owner() {
         .expect("session");
     assert_eq!(
         page.result_refs,
-        [artifact(0x71)],
+        [artifact(6)],
         "indexed in the agent's session"
     );
     let info = store
-        .artifact(artifact(0x71))
+        .artifact(artifact(6))
         .expect("read")
         .expect("published");
     assert_eq!(info.owner, OPERATOR, "owned by the capturing tenant");

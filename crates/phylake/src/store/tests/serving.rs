@@ -1,24 +1,28 @@
-//! Idempotency claims, standalone audit entries, scoped audit reads, and
-//! the logical digest.
+//! Idempotency claims, standalone audit entries, and the logical digest.
 
 use syntheke::{
-    AuditScope, AuditSeq, Capability, InvocationState, OutcomeKind, SessionId, TenantId,
+    AuditSeq, Capability, Failure, GrantId, InvocationState, OutcomeKind, SessionId, TenantId,
 };
 
 use crate::Error;
-use crate::store::test_support::{AGENT, Fixture, OPERATOR, OTHER, S_AGENT, idem, invocation};
-use crate::store::{AuditEntry, AuditQuery, Claimed, IdemClaim};
+use crate::store::test_support::{AGENT, Fixture, G_AGENT, OTHER, S_AGENT, idem, invocation};
+use crate::store::{AuditNote, AuditOutcome, Claimed, IdemClaim};
 
 const DIGEST_A: [u8; 32] = [0x11; 32];
 const DIGEST_B: [u8; 32] = [0x22; 32];
 const UNKNOWN: TenantId = TenantId::from_bytes(*b"TENANT-UNKNOWN-9");
+const OTHER_GRANT: GrantId = GrantId::from_bytes([0xc0; 16]);
 
-fn claim(tenant: TenantId, digest: [u8; 32], byte: u8) -> IdemClaim<'static> {
-    // WHY leak: the claim borrows its key; a test key living for the whole
-    // process keeps the helper signature simple.
-    let key = Box::leak(Box::new(idem(0x42)));
+fn claim_of(
+    key: &syntheke::IdempotencyKey,
+    tenant: TenantId,
+    grant: GrantId,
+    digest: [u8; 32],
+    byte: u8,
+) -> IdemClaim<'_> {
     IdemClaim::new(
         tenant,
+        grant,
         Capability::SessionCreate,
         key,
         digest,
@@ -27,12 +31,17 @@ fn claim(tenant: TenantId, digest: [u8; 32], byte: u8) -> IdemClaim<'static> {
 }
 
 #[test]
-fn claim_binds_fresh_key_then_replays_same_digest() {
+fn claim_binds_fresh_key_then_replays_same_request() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
+    let key = idem(0x42);
 
-    let first = store.claim(&claim(AGENT, DIGEST_A, 0x01)).expect("claim");
-    let again = store.claim(&claim(AGENT, DIGEST_A, 0x02)).expect("claim");
+    let first = store
+        .claim(&claim_of(&key, AGENT, G_AGENT, DIGEST_A, 0x01))
+        .expect("claim");
+    let again = store
+        .claim(&claim_of(&key, AGENT, G_AGENT, DIGEST_A, 0x02))
+        .expect("claim");
 
     assert_eq!(first, Claimed::Fresh(invocation(0x01)), "unbound key binds");
     assert_eq!(
@@ -43,15 +52,28 @@ fn claim_binds_fresh_key_then_replays_same_digest() {
 }
 
 #[test]
-fn claim_reports_conflict_for_other_digest_and_writes_nothing() {
+fn claim_conflicts_on_other_digest_or_grant_and_writes_nothing() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
-    store.claim(&claim(AGENT, DIGEST_A, 0x01)).expect("claim");
+    let key = idem(0x42);
+    store
+        .claim(&claim_of(&key, AGENT, G_AGENT, DIGEST_A, 0x01))
+        .expect("claim");
     let before = store.logical_digest().expect("digest");
 
-    let conflict = store.claim(&claim(AGENT, DIGEST_B, 0x03)).expect("claim");
+    let digest = store
+        .claim(&claim_of(&key, AGENT, G_AGENT, DIGEST_B, 0x03))
+        .expect("claim");
+    let grant = store
+        .claim(&claim_of(&key, AGENT, OTHER_GRANT, DIGEST_A, 0x04))
+        .expect("claim");
 
-    assert_eq!(conflict, Claimed::Conflict, "another digest conflicts");
+    assert_eq!(digest, Claimed::Conflict, "another digest conflicts");
+    assert_eq!(
+        grant,
+        Claimed::Conflict,
+        "another designated grant conflicts"
+    );
     assert_eq!(
         store.logical_digest().expect("digest"),
         before,
@@ -63,9 +85,14 @@ fn claim_reports_conflict_for_other_digest_and_writes_nothing() {
 fn claim_keys_are_per_tenant() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
-    store.claim(&claim(AGENT, DIGEST_A, 0x01)).expect("claim");
+    let key = idem(0x42);
+    store
+        .claim(&claim_of(&key, AGENT, G_AGENT, DIGEST_A, 0x01))
+        .expect("claim");
 
-    let other = store.claim(&claim(OTHER, DIGEST_B, 0x04)).expect("claim");
+    let other = store
+        .claim(&claim_of(&key, OTHER, G_AGENT, DIGEST_B, 0x04))
+        .expect("claim");
 
     assert_eq!(
         other,
@@ -75,34 +102,82 @@ fn claim_keys_are_per_tenant() {
 }
 
 #[test]
+fn claimed_reads_the_binding_without_writing() {
+    let fixture = Fixture::new();
+    let store = fixture.seeded();
+    let key = idem(0x42);
+    let unbound = store
+        .claimed(&claim_of(&key, AGENT, G_AGENT, DIGEST_A, 0x01))
+        .expect("peek");
+    let before = store.logical_digest().expect("digest");
+    assert_eq!(unbound, None, "an unbound key reads as None");
+    assert_eq!(
+        store.logical_digest().expect("digest"),
+        before,
+        "a peek writes nothing"
+    );
+    store
+        .claim(&claim_of(&key, AGENT, G_AGENT, DIGEST_A, 0x01))
+        .expect("claim");
+
+    let same = store
+        .claimed(&claim_of(&key, AGENT, G_AGENT, DIGEST_A, 0x09))
+        .expect("peek");
+    let other = store
+        .claimed(&claim_of(&key, AGENT, G_AGENT, DIGEST_B, 0x09))
+        .expect("peek");
+
+    assert_eq!(
+        same,
+        Some(Claimed::Replay(invocation(0x01))),
+        "same request"
+    );
+    assert_eq!(other, Some(Claimed::Conflict), "different request");
+}
+
+#[test]
 fn claim_refuses_unknown_tenant() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
+    let key = idem(0x42);
 
-    let error = store
-        .claim(&claim(UNKNOWN, DIGEST_A, 0x01))
+    let claim = store
+        .claim(&claim_of(&key, UNKNOWN, G_AGENT, DIGEST_A, 0x01))
+        .expect_err("unknown tenant");
+    let peek = store
+        .claimed(&claim_of(&key, UNKNOWN, G_AGENT, DIGEST_A, 0x01))
         .expect_err("unknown tenant");
 
     assert!(
-        matches!(error, Error::TenantMissing { .. }),
-        "an unknown tenant has no keys: {error:?}"
+        matches!(claim, Error::TenantMissing { .. }),
+        "an unknown tenant has no keys: {claim:?}"
+    );
+    assert!(
+        matches!(peek, Error::TenantMissing { .. }),
+        "an unknown tenant has no keys: {peek:?}"
     );
 }
 
 #[test]
-fn record_audit_appends_one_entry_in_sequence() {
+fn record_audit_appends_refusals_and_completions_in_sequence() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
-    let entry = AuditEntry::new(
+    let mut refused = AuditNote::new(
         AGENT,
         invocation(0x05),
         Capability::Read,
-        InvocationState::Denied,
-        OutcomeKind::NotFoundOrDenied,
+        AuditOutcome::Refused(Failure::NotFoundOrDenied),
+    );
+    refused.session = Some(S_AGENT);
+    let completed = AuditNote::new(
+        AGENT,
+        invocation(0x06),
+        Capability::AuditQuery,
+        AuditOutcome::Completed(None),
     );
 
-    let first = store.record_audit(entry).expect("audit");
-    let second = store.record_audit(entry).expect("audit");
+    let first = store.record_audit(&refused).expect("audit");
+    let second = store.record_audit(&completed).expect("audit");
 
     assert_eq!(
         second.get(),
@@ -116,142 +191,46 @@ fn record_audit_appends_one_entry_in_sequence() {
             10,
         )
         .expect("records");
-    assert_eq!(own.len(), 2, "both entries are in the tenant's partition");
+    let shape: Vec<_> = own
+        .iter()
+        .map(|event| {
+            (
+                event.record.state,
+                event.record.outcome,
+                event.record.session,
+            )
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        vec![
+            (
+                InvocationState::Denied,
+                OutcomeKind::NotFoundOrDenied,
+                Some(S_AGENT)
+            ),
+            (InvocationState::Settled, OutcomeKind::Success, None),
+        ],
+        "a refusal is Denied with its failure; a completion is Settled"
+    );
 }
 
 #[test]
 fn record_audit_refuses_unknown_tenant() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
-    let entry = AuditEntry::new(
+    let note = AuditNote::new(
         UNKNOWN,
         invocation(0x06),
         Capability::Read,
-        InvocationState::Denied,
-        OutcomeKind::Denied,
+        AuditOutcome::Refused(Failure::NotFoundOrDenied),
     );
 
-    let error = store.record_audit(entry).expect_err("unknown tenant");
+    let error = store.record_audit(&note).expect_err("unknown tenant");
 
     assert!(
         matches!(error, Error::TenantMissing { .. }),
         "an unknown tenant has no partition: {error:?}"
-    );
-}
-
-/// Seeds entries for the scope tests: the other agent acts once in the
-/// agent's session and once in no session.
-fn seed_other_entries(store: &crate::Store) {
-    let in_session = AuditEntry::new(
-        OTHER,
-        invocation(0x07),
-        Capability::Read,
-        InvocationState::Denied,
-        OutcomeKind::Denied,
-    )
-    .in_session(Some(S_AGENT));
-    store.record_audit(in_session).expect("audit");
-    let outside = AuditEntry::new(
-        OTHER,
-        invocation(0x08),
-        Capability::Query,
-        InvocationState::Denied,
-        OutcomeKind::Denied,
-    );
-    store.record_audit(outside).expect("audit");
-}
-
-fn invocations(query: &AuditQuery, store: &crate::Store) -> Vec<u8> {
-    store
-        .audit_query(query)
-        .expect("audit query")
-        .records
-        .iter()
-        .map(|record| record.invocation.to_bytes()[0])
-        .collect()
-}
-
-#[test]
-fn audit_query_own_scope_adds_entries_in_owned_sessions_only() {
-    let fixture = Fixture::new();
-    let store = fixture.seeded();
-    seed_other_entries(&store);
-
-    let seen = invocations(
-        &AuditQuery::new(AGENT, AuditScope::OwnAndOwnedSessions, 100),
-        &store,
-    );
-
-    assert_eq!(
-        seen,
-        vec![0xe0, 0x07],
-        "own session create plus the other agent's entry in the owned session"
-    );
-}
-
-#[test]
-fn audit_query_all_scope_reads_every_partition_in_sequence() {
-    let fixture = Fixture::new();
-    let store = fixture.seeded();
-    seed_other_entries(&store);
-
-    let seen = invocations(&AuditQuery::new(OPERATOR, AuditScope::All, 100), &store);
-
-    assert_eq!(
-        seen,
-        vec![0xe1, 0xe0, 0x07, 0x08],
-        "grant issue, session create, and both of the other agent's entries"
-    );
-}
-
-#[test]
-fn audit_query_filters_session_and_pages() {
-    let fixture = Fixture::new();
-    let store = fixture.seeded();
-    seed_other_entries(&store);
-    let mut query = AuditQuery::new(OPERATOR, AuditScope::All, 1);
-    query.session = Some(S_AGENT);
-
-    let first = store.audit_query(&query).expect("page");
-    query.after = first.records.last().map(|record| record.seq);
-    let second = store.audit_query(&query).expect("page");
-
-    let ids = |page: &crate::store::AuditRead| {
-        page.records
-            .iter()
-            .map(|record| record.invocation.to_bytes()[0])
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(ids(&first), vec![0xe0], "first page holds one entry");
-    assert!(first.more, "a second entry remains");
-    assert_eq!(ids(&second), vec![0x07], "second page continues after");
-    assert!(!second.more, "nothing remains");
-}
-
-#[test]
-fn audit_query_unknown_session_filter_matches_nothing() {
-    let fixture = Fixture::new();
-    let store = fixture.seeded();
-    let mut query = AuditQuery::new(OPERATOR, AuditScope::All, 10);
-    query.session = Some(SessionId::from_bytes([0x99; 16]));
-
-    let read = store.audit_query(&query).expect("audit query");
-
-    assert!(read.records.is_empty(), "no entry names that session");
-}
-
-#[test]
-fn audit_query_refuses_unknown_tenant() {
-    let fixture = Fixture::new();
-    let store = fixture.seeded();
-
-    let error = store
-        .audit_query(&AuditQuery::new(UNKNOWN, AuditScope::All, 10))
-        .expect_err("unknown tenant");
-
-    assert!(
-        matches!(error, Error::TenantMissing { .. }),
-        "an unknown acting tenant has no partition: {error:?}"
     );
 }
 
@@ -260,7 +239,9 @@ fn logical_digest_is_stable_across_reads_and_reopen() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
     let before = store.logical_digest().expect("digest");
-    let _plan = store.snapshot();
+    let _unknown = store
+        .session_artifacts(SessionId::from_bytes([0x99; 16]), None, 10)
+        .expect("read");
     drop(store);
 
     let reopened = fixture.reopen();
@@ -277,8 +258,11 @@ fn logical_digest_changes_with_any_write() {
     let fixture = Fixture::new();
     let store = fixture.seeded();
     let before = store.logical_digest().expect("digest");
+    let key = idem(0x42);
 
-    store.claim(&claim(AGENT, DIGEST_A, 0x01)).expect("claim");
+    store
+        .claim(&claim_of(&key, AGENT, G_AGENT, DIGEST_A, 0x01))
+        .expect("claim");
 
     assert_ne!(
         store.logical_digest().expect("digest"),

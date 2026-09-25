@@ -35,7 +35,7 @@ fn raw_disk_holds_no_plaintext_ids_or_digests() {
         .expect("B1");
     assert!(matches!(begin, Begin::Persisted(_)), "{begin:?}");
     store.dispatch(invocation(1)).expect("B2");
-    let mut transfer = Transfer::new(artifact(0x71), ENVELOPE, source(), ACTUAL);
+    let mut transfer = Transfer::new(ENVELOPE, source(), ACTUAL);
     transfer.text_view = Some(TEXT_MARKER.to_owned());
     store
         .complete_transfer(invocation(1), &transfer)
@@ -178,7 +178,7 @@ fn publish_without_its_pending_record_is_inconsistent() {
         ))
         .expect("B1");
     store.dispatch(invocation(1)).expect("B2");
-    let transfer = Transfer::new(artifact(0x71), ENVELOPE, source(), ACTUAL);
+    let transfer = Transfer::new(ENVELOPE, source(), ACTUAL);
     store
         .complete_transfer(invocation(1), &transfer)
         .expect("B3");
