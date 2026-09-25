@@ -70,6 +70,17 @@ inefficient_to_string = "warn"
 # NOTE: each implementation slice declares the dependencies it introduces,
 # with its justification, in the same change.
 [workspace.dependencies]
+# WHY ed25519-dalek 3: tenant authentication is an Ed25519 signature over
+# the syntheke transcript (docs/design/capability-contract.md § Handshake).
+# 3.x sits on sha2 0.11 and rand_core 0.10, the RustCrypto generation the
+# custody crates use, so the tree holds one copy of each trait crate.
+# Default features off: `fast` precomputed tables are not needed for one
+# signature per connection; `zeroize` clears signing keys on drop.
+ed25519-dalek = { version = "3.0", default-features = false, features = ["zeroize"] }
+# WHY direct: the one OS random source for handshake nonces, keys, salts,
+# and sealing nonces. 0.4 is the version crypto-common 0.2 and
+# ed25519-dalek 3 use.
+getrandom = { version = "0.4", default-features = false }
 # WHY rkyv: docs/design/topology.md fixes rkyv as the wire format; 0.8 with
 # bytecheck validates an archive before any field is read. The format
 # features are named explicitly so a crate enabling a conflicting format
@@ -84,6 +95,9 @@ rkyv = { version = "0.8.18", default-features = false, features = [
 ] }
 # WHY snafu: the fleet error library (kanon RUST.md); thiserror is banned.
 snafu = "0.9.2"
+# WHY tempfile (dev only): tests that bind a unix socket path or write key
+# and store files create them in a fresh temporary directory.
+tempfile = "3"
 # WHY toml (dev only): the contract fixtures are TOML files that the
 # syntheke conformance test parses.
 toml = "1.1.6"
@@ -95,9 +109,6 @@ toml = "1.1.6"
 # WHY `zeroize` features: the cipher, HMAC, and hash states copy key
 # material into their own structs; these features zero that copy on drop.
 chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "zeroize"] }
-# WHY direct: the one OS random source for keys, salts, and nonces. 0.4 is
-# the version crypto-common 0.2 and ed25519-dalek 3 use.
-getrandom = { version = "0.4", default-features = false }
 hkdf = { version = "0.13", default-features = false }
 hmac = { version = "0.13", features = ["zeroize"] }
 # WHY rustix: opening the root key file with O_NOFOLLOW | O_NONBLOCK and
@@ -108,7 +119,6 @@ hmac = { version = "0.13", features = ["zeroize"] }
 rustix = { version = "1.1", default-features = false, features = ["std", "fs", "process"] }
 secrecy = "0.10"
 sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
-tempfile = "3"
 zeroize = "1.8"
 
 [profile.dev.package."*"]

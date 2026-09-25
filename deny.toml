@@ -20,9 +20,12 @@ ignore = []
 # - MIT, Apache-2.0: rkyv and its support crates, the RustCrypto crates,
 #   secrecy, zeroize, snafu, getrandom, tempfile, rustix, toml, and their
 #   build dependencies (all offer MIT or Apache-2.0).
+# - BSD-3-Clause: ed25519-dalek, curve25519-dalek, and subtle (Ed25519
+#   tenant authentication in xenos).
 # - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
 allow = [
     "Apache-2.0",
+    "BSD-3-Clause",
     "LicenseRef-PolyForm-Noncommercial-1.0.0",
     "MIT",
     "Unicode-3.0",
