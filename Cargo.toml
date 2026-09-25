@@ -70,15 +70,17 @@ inefficient_to_string = "warn"
 # NOTE: each implementation slice declares the dependencies it introduces,
 # with its justification, in the same change.
 [workspace.dependencies]
-# WHY ed25519-dalek 3: verifies the handshake signature (contract § Wire
-# protocol). Version 3 sits on the same RustCrypto generation as the custody
-# crypto (sha2 0.11, rand_core 0.10), so the tree keeps one copy of each
-# trait crate. `fast` keeps the precomputed basepoint tables for verify;
-# batch, serde, and key encodings stay off.
-ed25519-dalek = { version = "3.0", default-features = false, features = ["fast"] }
-# WHY getrandom direct: the fresh 16-byte server nonce that makes every
-# handshake transcript unique. 0.4 is the version ed25519-dalek 3 and the
-# custody crypto use; called directly so a failure is a visible error.
+# WHY ed25519-dalek 3: tenant authentication is an Ed25519 signature over
+# the syntheke transcript (docs/design/capability-contract.md § Handshake);
+# the daemon verifies it and xenos signs it. 3.x sits on sha2 0.11 and
+# rand_core 0.10, the RustCrypto generation the custody crates use, so the
+# tree holds one copy of each trait crate. Default features off: `fast`
+# precomputed tables are not needed for one signature per connection;
+# `zeroize` clears signing keys on drop.
+ed25519-dalek = { version = "3.0", default-features = false, features = ["zeroize"] }
+# WHY direct: the one OS random source for handshake nonces and the
+# daemon's dummy verifying key. 0.4 is the version crypto-common 0.2 and
+# ed25519-dalek 3 use; called directly so a failure is a visible error.
 getrandom = { version = "0.4", default-features = false }
 # WHY rkyv: docs/design/topology.md fixes rkyv as the wire format; 0.8 with
 # bytecheck validates an archive before any field is read. The format
@@ -97,8 +99,8 @@ rkyv = { version = "0.8.18", default-features = false, features = [
 rustix = { version = "1.1.5", default-features = false }
 # WHY snafu: the fleet error library (kanon RUST.md); thiserror is banned.
 snafu = "0.9.2"
-# WHY tempfile (dev only): socket and directory tests run in a private
-# temporary directory.
+# WHY tempfile (dev only): tests that bind a unix socket path create it in a
+# fresh temporary directory.
 tempfile = "3.27"
 # WHY tokio: the daemon's async runtime and Unix socket server. The
 # workspace entry enables no features; each crate names what it uses.

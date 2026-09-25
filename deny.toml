@@ -19,9 +19,9 @@ ignore = []
 # that needs them.
 # - MIT, Apache-2.0: rkyv and its support crates (MIT), snafu, toml, and
 #   their build dependencies (dual-licensed MIT OR Apache-2.0).
+# - BSD-3-Clause: ed25519-dalek, curve25519-dalek, and subtle (Ed25519
+#   tenant authentication: the daemon verifies, xenos signs).
 # - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
-# - BSD-3-Clause: ed25519-dalek, curve25519-dalek, and subtle, the handshake
-#   signature verifier in the daemon.
 allow = [
     "Apache-2.0",
     "BSD-3-Clause",
