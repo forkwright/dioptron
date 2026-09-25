@@ -17,8 +17,9 @@ ignore = []
 # need; cargo-deny warns on allowances no crate uses. Each implementation
 # slice adds the licenses its new dependencies need, with the dependency
 # that needs them.
-# - MIT, Apache-2.0: rkyv and its support crates (MIT), snafu, toml, and
-#   their build dependencies (dual-licensed MIT OR Apache-2.0).
+# - MIT, Apache-2.0: rkyv and its support crates (MIT), the RustCrypto
+#   crates, secrecy, zeroize, snafu, toml, getrandom, tempfile, rustix, and
+#   their build dependencies (all offer MIT or Apache-2.0).
 # - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
 allow = [
     "Apache-2.0",

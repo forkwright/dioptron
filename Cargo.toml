@@ -95,6 +95,29 @@ toml = "1.1.6"
 # random children. Default features are off so it pulls no OS random source
 # (getrandom) and no fork or tempfile support; runs start from a fixed seed.
 proptest = { version = "1.11.0", default-features = false, features = ["alloc", "no_std"] }
+# WHY one RustCrypto generation: chacha20poly1305 0.11 (aead 0.6), hkdf
+# 0.13, hmac 0.13, and sha2 0.11 all sit on digest 0.11, crypto-common
+# 0.2, and hybrid-array 0.4, so the tree holds one copy of each trait
+# crate (deny.toml bans duplicate versions). ed25519-dalek 3.0 depends on
+# sha2 0.11 and rand_core 0.10, the same generation.
+# WHY `zeroize` features: the cipher, HMAC, and hash states copy key
+# material into their own structs; these features zero that copy on drop.
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "zeroize"] }
+# WHY direct: the one OS random source for keys, salts, and nonces. 0.4 is
+# the version crypto-common 0.2 and ed25519-dalek 3 use.
+getrandom = { version = "0.4", default-features = false }
+hkdf = { version = "0.13", default-features = false }
+hmac = { version = "0.13", features = ["zeroize"] }
+# WHY rustix: opening the root key file with O_NOFOLLOW | O_NONBLOCK and
+# reading the effective uid need flags and a syscall that std exposes only
+# through raw `libc` constants or unsafe calls. rustix wraps both in safe
+# functions and is already in the lock file (tempfile depends on it), so it
+# adds no new crate version.
+rustix = { version = "1.1", default-features = false, features = ["std", "fs", "process"] }
+secrecy = "0.10"
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+tempfile = "3"
+zeroize = "1.8"
 
 [profile.dev.package."*"]
 opt-level = 2

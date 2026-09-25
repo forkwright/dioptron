@@ -8,5 +8,15 @@
 //! transaction so that restart recovery can settle or release each
 //! invocation exactly once.
 //!
-//! This crate is a skeleton until its implementation slices land.
+//! This slice provides the encryption layer (`docs/design/custody-store.md`,
+//! "Encryption at rest"): [`keyfile`] loads and creates the root key, and
+//! [`crypto`] derives subkeys, seals records, wraps tenant data keys,
+//! computes keyed blob addresses, and checks the key-check value that gates
+//! a locked start. The keyspaces themselves land in a later slice.
 #![deny(missing_docs)]
+
+pub mod crypto;
+mod error;
+pub mod keyfile;
+
+pub use error::{Error, Result};
