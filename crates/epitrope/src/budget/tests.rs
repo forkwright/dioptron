@@ -288,3 +288,48 @@ fn release_errors_on_underflow() {
         "checked sub, got {result:?}"
     );
 }
+
+#[test]
+fn own_remaining_ignores_a_tighter_upstream_ledger() {
+    let ledgers = [
+        ledger(LEAF, capped(Dimension::Fetches, 10), fetches(4), true),
+        ledger(PARENT, capped(Dimension::Fetches, 10), fetches(8), false),
+        ledger(SESSION, capped(Dimension::Fetches, 1), fetches(0), false),
+        ledger(TENANT, Ceilings::default(), fetches(1_000), true),
+    ];
+
+    let remaining = own_remaining(&ledgers);
+
+    assert_eq!(
+        remaining.fetches,
+        Some(6),
+        "the leaf's 10 - 4; the parent's 2 and the foreign session's 1 stay hidden"
+    );
+    assert_eq!(
+        remaining.bytes_transferred, None,
+        "no own ledger caps transfer"
+    );
+}
+
+#[test]
+fn own_remaining_takes_the_smallest_own_ceiling_and_floors_at_zero() {
+    let ledgers = [
+        ledger(LEAF, capped(Dimension::Fetches, 10), fetches(0), true),
+        ledger(SESSION, capped(Dimension::Fetches, 3), fetches(1), true),
+        ledger(
+            TENANT,
+            capped(Dimension::OutputBytes, 5),
+            amount(Dimension::OutputBytes, 9),
+            true,
+        ),
+    ];
+
+    let remaining = own_remaining(&ledgers);
+
+    assert_eq!(remaining.fetches, Some(2), "the owned session's 3 - 1");
+    assert_eq!(
+        remaining.output_bytes,
+        Some(0),
+        "an overspent ledger has nothing left"
+    );
+}

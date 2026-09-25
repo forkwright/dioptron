@@ -44,12 +44,14 @@ mod test_support;
 
 pub use audit::{RuleView, applied_audit_scope, audit_scope_within, default_audit_scope};
 pub use budget::{
-    BudgetCheck, BudgetRefusal, LedgerState, ReservationPlan, Settlement, plan_reservation,
-    release, reserve, settle, unknown_effect_settlement,
+    BudgetCheck, BudgetRefusal, LedgerState, ReservationPlan, Settlement, own_remaining,
+    plan_reservation, release, reserve, settle, unknown_effect_settlement,
 };
 pub use chain::{ChainStatus, check_chain};
 pub use clock::{Clock, FixedClock};
-pub use decision::{AuthzRequest, Decision, authorize, designated_chain, is_served, plan};
+pub use decision::{
+    AuthzRequest, Decision, authorize, caller_remaining, designated_chain, is_served, plan,
+};
 pub use error::Error;
 pub use grant::{
     Grant, IssueContext, IssueDecision, MAX_TENANT_LINEAGE, Revocation, check_issue, in_lineage,

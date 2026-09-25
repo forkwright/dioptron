@@ -354,6 +354,90 @@ fn authorize_reports_budget_on_own_ledgers_only() -> Result<(), Error> {
     Ok(())
 }
 
+fn remaining_for(
+    view: &MemView,
+    tenant: TenantId,
+    grant: GrantId,
+    session: SessionId,
+) -> Result<Ceilings, Error> {
+    let chain = match designated_chain(view, tenant, grant, Capability::Capture, &FixedClock(NOW))?
+    {
+        Ok(chain) => chain,
+        Err(refusal) => panic!("the fixture chain is usable, got {refusal:?}"),
+    };
+    caller_remaining(view, tenant, &chain, Some(session))
+}
+
+#[test]
+fn caller_remaining_hides_ancestor_and_foreign_session_budgets() -> Result<(), Error> {
+    let mut view = cast();
+    view.set_used(
+        LedgerId::Grant(G_AGENT),
+        Cost {
+            fetches: 9,
+            ..Cost::default()
+        },
+    );
+    view.session_ceilings.insert(
+        S_AGENT,
+        Ceilings {
+            fetches: Some(0),
+            ..Ceilings::default()
+        },
+    );
+    view.tenant_ceilings.insert(
+        SUB,
+        Ceilings {
+            output_bytes: Some(10),
+            ..Ceilings::default()
+        },
+    );
+
+    let remaining = remaining_for(&view, SUB, G_SUB, S_AGENT)?;
+
+    assert_eq!(
+        remaining,
+        Ceilings {
+            fetches: Some(2),
+            bytes_transferred: Some(65_536),
+            output_bytes: Some(10),
+            ..Ceilings::default()
+        },
+        "the leaf's own ceilings and the tenant's; the parent's 1 fetch left \
+         and the agent-owned session's 0 stay hidden"
+    );
+    Ok(())
+}
+
+#[test]
+fn caller_remaining_counts_an_owned_session() -> Result<(), Error> {
+    let mut view = cast();
+    view.session_ceilings.insert(
+        S_AGENT,
+        Ceilings {
+            fetches: Some(3),
+            ..Ceilings::default()
+        },
+    );
+    view.set_used(
+        LedgerId::Grant(G_ROOT),
+        Cost {
+            bytes_transferred: 1_048_000,
+            ..Cost::default()
+        },
+    );
+
+    let remaining = remaining_for(&view, AGENT, G_AGENT, S_AGENT)?;
+
+    assert_eq!(
+        (remaining.fetches, remaining.bytes_transferred),
+        (Some(3), Some(524_288)),
+        "the owned session caps fetches; the operator's root grant, with 576 \
+         bytes left, does not set the transfer default"
+    );
+    Ok(())
+}
+
 #[test]
 fn authorize_errors_when_an_uncapped_ledger_would_overflow() {
     let mut view = cast();

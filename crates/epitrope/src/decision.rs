@@ -2,11 +2,13 @@
 
 use snafu::ResultExt as _;
 use syntheke::{
-    Capability, Cost, DenyCode, Dimension, Failure, GrantId, InvocationState, Mode, Plan,
+    Capability, Ceilings, Cost, DenyCode, Dimension, Failure, GrantId, InvocationState, Mode, Plan,
     SessionId, SessionScope, TenantId,
 };
 
-use crate::budget::{BudgetCheck, BudgetRefusal, LedgerState, ReservationPlan, plan_reservation};
+use crate::budget::{
+    BudgetCheck, BudgetRefusal, LedgerState, ReservationPlan, own_remaining, plan_reservation,
+};
 use crate::chain::{ChainStatus, check_chain};
 use crate::clock::Clock;
 use crate::error::{Error, SessionNotApplicableSnafu, ViewSnafu};
@@ -248,6 +250,32 @@ pub(crate) fn reserve_for(
             code: DenyCode::BudgetUnavailable,
         },
     })
+}
+
+/// The remaining ceiling on each dimension across the ledgers `tenant`
+/// owns among those a call under `chain` in `session` debits: the grants
+/// in `chain` it holds, `session` when it owns it, and its tenant ledger
+/// ([`own_remaining`]). A session that is missing or owned by another
+/// tenant contributes nothing.
+///
+/// # Errors
+///
+/// [`Error::View`] when a ledger or the session owner cannot be read.
+pub fn caller_remaining(
+    view: &dyn Snapshot,
+    tenant: TenantId,
+    chain: &[Grant],
+    session: Option<SessionId>,
+) -> Result<Ceilings, Error> {
+    let owned = match session {
+        Some(session) => view
+            .session_owner(session)
+            .context(ViewSnafu)?
+            .filter(|owner| *owner == tenant)
+            .map(|owner| (session, owner)),
+        None => None,
+    };
+    Ok(own_remaining(&ledger_states(view, tenant, chain, owned)?))
 }
 
 /// Checks `session` against every link; returns its owner when admitted.

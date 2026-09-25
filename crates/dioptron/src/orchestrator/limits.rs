@@ -3,10 +3,18 @@
 //!
 //! A limit the caller sets is kept, lowered to the daemon's cap on that
 //! dimension. A limit the caller omits becomes the smallest remaining
-//! ceiling on that dimension across the designated grant's chain, lowered
-//! to the same cap; a chain with no ceiling there declares the cap. The
-//! result is the capture's declared reservation and the bound the producer
-//! is handed, so a capture never reserves or transfers more than it may.
+//! ceiling on that dimension among the ledgers the caller owns (its tenant
+//! ledger, the grants in the designated chain it holds, and the session
+//! when it owns it), lowered to the same cap; no ceiling there declares
+//! the cap. The result is the capture's declared reservation and the bound
+//! the producer is handed, so a capture never reserves or transfers more
+//! than it may.
+//!
+//! WHY own ledgers only: the declared limit is visible to the caller in a
+//! plan and in replies, so defaulting to an ancestor grant's remaining
+//! budget would disclose it. Ancestor ledgers only gate the reservation:
+//! one that cannot cover the declared amount refuses the call as
+//! `Denied{BudgetUnavailable}`, which names no dimension.
 //!
 //! The daemon caps:
 //!
@@ -15,13 +23,13 @@
 //! - output: the connection's reply payload budget, because the text view
 //!   travels whole in one reply frame.
 
-use epitrope::{LedgerId, LedgerView as _, designated_chain};
+use epitrope::{caller_remaining, designated_chain};
 use phylake::crypto::MAX_PLAINTEXT_LEN;
 use snafu::ResultExt as _;
-use syntheke::{Capability, CaptureLimits, Ceilings, Cost};
+use syntheke::{Capability, CaptureLimits, Ceilings, Cost, SessionId};
 
 use super::{Call, Inner};
-use crate::error::{AuthzSnafu, Error, ViewSnafu};
+use crate::error::{AuthzSnafu, Error};
 use crate::producer::Producer;
 
 /// The daemon's transfer cap: the largest envelope the custody store
@@ -43,28 +51,22 @@ pub(super) fn capture_cost(limits: &CaptureLimits, deadline_ms: u32) -> Cost {
     }
 }
 
-/// One dimension's declared limit: the caller's, else the chain's
+/// One dimension's declared limit: the caller's, else its own ledgers'
 /// remaining ceiling, else the cap; never above the cap.
 pub(super) fn declared(requested: Option<u64>, remaining: Option<u64>, cap: u64) -> u64 {
     requested.or(remaining).unwrap_or(cap).min(cap)
 }
 
-/// The tighter of two optional ceilings; `None` is no ceiling.
-fn tighter(current: Option<u64>, next: Option<u64>) -> Option<u64> {
-    match (current, next) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (a, b) => a.or(b),
-    }
-}
-
 impl<P: Producer> Inner<P> {
-    /// The limits `call` captures under, with both fields set.
+    /// The limits `call` captures under in `session`, with both fields
+    /// set.
     pub(super) fn capture_limits(
         &self,
         call: &Call,
+        session: SessionId,
         requested: CaptureLimits,
     ) -> Result<CaptureLimits, Error> {
-        let remaining = self.chain_remaining(call)?;
+        let remaining = self.own_remaining(call, session)?;
         Ok(CaptureLimits {
             max_output_bytes: Some(declared(
                 requested.max_output_bytes,
@@ -79,15 +81,16 @@ impl<P: Producer> Inner<P> {
         })
     }
 
-    /// The remaining ceiling on each dimension across the designated
-    /// grant's chain, over a snapshot. A grant that cannot authorize a
-    /// capture yields no ceilings; authorization refuses the call anyway.
+    /// The remaining ceiling on each dimension across the caller's own
+    /// ledgers for a capture under the designated grant in `session`, over
+    /// a snapshot. A grant that cannot authorize a capture yields no
+    /// ceilings; authorization refuses the call anyway.
     ///
     /// NOTE: another call may reserve between this snapshot and B1, which
     /// re-reads every ledger in its own transaction; a declared limit that
     /// no longer fits is then refused as a budget shortfall, never
     /// over-reserved.
-    fn chain_remaining(&self, call: &Call) -> Result<Ceilings, Error> {
+    fn own_remaining(&self, call: &Call, session: SessionId) -> Result<Ceilings, Error> {
         let snapshot = self.store.snapshot();
         let decided = designated_chain(
             &snapshot,
@@ -100,19 +103,6 @@ impl<P: Producer> Inner<P> {
         let Ok(chain) = decided else {
             return Ok(Ceilings::default());
         };
-        let mut remaining = Ceilings::default();
-        for link in &chain {
-            let used = snapshot.used(LedgerId::Grant(link.id)).context(ViewSnafu)?;
-            let left = |ceiling: Option<u64>, spent: u64| ceiling.map(|c| c.saturating_sub(spent));
-            remaining.bytes_transferred = tighter(
-                remaining.bytes_transferred,
-                left(link.ceilings.bytes_transferred, used.bytes_transferred),
-            );
-            remaining.output_bytes = tighter(
-                remaining.output_bytes,
-                left(link.ceilings.output_bytes, used.output_bytes),
-            );
-        }
-        Ok(remaining)
+        caller_remaining(&snapshot, call.tenant, &chain, Some(session)).context(AuthzSnafu)
     }
 }

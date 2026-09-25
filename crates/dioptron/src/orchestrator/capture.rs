@@ -117,7 +117,7 @@ impl<P: Producer> Inner<P> {
             // reaching here is a protocol fault, never a conflict.
             return Ok(Started::Answered(Reply::failed(Failure::ProtocolError)));
         };
-        let limits = self.capture_limits(call, capture.limits)?;
+        let limits = self.capture_limits(call, capture.session, capture.limits)?;
         let declared = capture_cost(&limits, call.deadline_ms);
         let authz = Self::authz(
             call,

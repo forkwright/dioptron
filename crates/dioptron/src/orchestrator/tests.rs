@@ -20,6 +20,7 @@ use super::test_support::{
 use super::{fresh_id, request_digest};
 
 mod expiry;
+mod limits;
 mod serving;
 
 fn failure(response: &Response) -> Option<Failure> {

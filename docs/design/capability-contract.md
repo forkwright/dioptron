@@ -607,9 +607,15 @@ A `Capture` declares a transfer limit and an output limit, and both become
 its reserved maximum on those dimensions and the bounds the producer is
 handed. A limit the caller sets is kept, lowered to the daemon cap on that
 dimension. A limit the caller omits is the smallest remaining ceiling on that
-dimension across the designated grant's chain (each link's ceiling less what
-that link's ledger has spent), lowered to the daemon cap; when no link sets a
-ceiling there, the limit is the daemon cap. The daemon caps are:
+dimension among the ledgers the caller owns (each ledger's ceiling less what it
+has spent): its tenant ledger, the grants in the designated chain it holds, and
+the session when it owns it. That value is lowered to the daemon cap; when no
+owned ledger sets a ceiling there, the limit is the daemon cap. Ledgers the
+caller does not own, such as an ancestor grant's, never set a default, because
+the declared limit appears in plans and replies and would disclose their
+remaining budget. They only gate the reservation: one that cannot cover the
+declared amount refuses the call as `Denied{BudgetUnavailable}`, which names no
+dimension. The daemon caps are:
 
 - transfer: the largest envelope the custody store seals, 64 MiB;
 - output: the connection's negotiated maximum frame body less 1 KiB of reply

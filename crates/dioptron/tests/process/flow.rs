@@ -2,9 +2,12 @@
 //! unauthorized peer's attempt at the same read.
 #![expect(clippy::expect_used, reason = "test assertions must fail loudly")]
 
+use epitrope::{LedgerId, LedgerView as _};
+use phylake::store::Terminal;
 use syntheke::{
-    ArtifactRef, Capability, CaptureLimits, CaptureRequest, ExtractionClass, Failure, GrantId,
-    Mode, ReadRequest, RequestBody, ResponseBody, TransferClass,
+    ArtifactRef, Capability, CaptureLimits, CaptureRequest, Cost, ExtractionClass, Failure,
+    GrantId, InvocationState, Mode, ReadRequest, ReleaseReason, RequestBody, ResponseBody,
+    TransferClass,
 };
 use xenos::{Client, Error as XenosError, Timeouts, supported_versions};
 
@@ -251,13 +254,47 @@ fn default_producer_never_fetches() {
     );
 
     let response = client.call(&request).expect("capture");
+    drop(client);
+    daemon.stop();
 
+    // NOTE: the wire reply `ProducerUnavailable` is what the orchestrator
+    // sends for `Unavailable{contacted: false}` only; a contacted producer
+    // reads as `UnknownEffect` and charges its reservation.
     assert_eq!(
         response.body,
         ResponseBody::Failed(Failure::ProducerUnavailable),
-        "without an explicit producer nothing is acquired"
+        "the default producer reports it was never contacted"
     );
-    assert_eq!(harness.calls(), 0, "no fixture was consulted");
-    drop(client);
-    daemon.stop();
+    let id = response
+        .invocation
+        .expect("the capture persisted an intent");
+    let store = harness.open_store();
+    let status = store
+        .invocation(id)
+        .expect("invocation read")
+        .expect("invocation exists");
+    assert_eq!(
+        (status.state, status.terminal),
+        (
+            InvocationState::Released,
+            Some(Terminal::Released {
+                reason: ReleaseReason::ProducerUnavailable
+            })
+        ),
+        "released, never settled"
+    );
+    assert_eq!(status.reserved.fetches, 1, "B1 reserved one fetch");
+    assert_eq!(status.debited, Some(Cost::default()), "nothing charged");
+    let snapshot = store.snapshot();
+    for ledger in [
+        LedgerId::Grant(crate::test_support::ROOT),
+        LedgerId::Session(session),
+        LedgerId::Tenant(operator().id),
+    ] {
+        assert_eq!(
+            snapshot.used(ledger).expect("ledger read"),
+            Cost::default(),
+            "the whole reservation returned to {ledger:?}"
+        );
+    }
 }

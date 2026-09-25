@@ -19,7 +19,7 @@ impl<P: Producer> Inner<P> {
         let zero = Cost::default();
         let plan = match body {
             RequestBody::Capture(capture) => {
-                let limits = self.capture_limits(call, capture.limits)?;
+                let limits = self.capture_limits(call, capture.session, capture.limits)?;
                 let declared = capture_cost(&limits, call.deadline_ms);
                 self.decide(&Self::authz(
                     call,

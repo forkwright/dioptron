@@ -317,16 +317,19 @@ impl Harness {
         .expect("admitted")
     }
 
-    /// The logical digest of the stopped daemon's store.
-    pub fn digest(&self) -> [u8; 32] {
+    /// The stopped daemon's store, opened directly.
+    pub fn open_store(&self) -> phylake::Store {
         let root = phylake::keyfile::RootKey::load(&self.path("root.key")).expect("root key");
         let clock: std::sync::Arc<dyn epitrope::Clock + Send + Sync> =
             std::sync::Arc::new(epitrope::FixedClock(Timestamp::from_unix_millis(NOW_MS)));
         phylake::StoreOptions::new(self.path("store"), clock)
             .open(&root)
             .expect("open store")
-            .logical_digest()
-            .expect("digest")
+    }
+
+    /// The logical digest of the stopped daemon's store.
+    pub fn digest(&self) -> [u8; 32] {
+        self.open_store().logical_digest().expect("digest")
     }
 
     /// A request with a fresh request id.
