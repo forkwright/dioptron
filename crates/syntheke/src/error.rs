@@ -209,4 +209,13 @@ pub enum Error {
         #[snafu(implicit)]
         location: snafu::Location,
     },
+
+    /// A `Denied` failure carried a narrowing axis without the
+    /// `NarrowingViolation` code, or that code without an axis.
+    #[snafu(display("a denial carries an axis exactly when its code is NarrowingViolation"))]
+    DeniedAxisMismatch {
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
 }

@@ -5,9 +5,9 @@ use snafu::{OptionExt as _, ensure};
 
 use crate::codec::Message;
 use crate::error::{
-    BadMagicSnafu, Error, FaultNotConnectionLevelSnafu, FrameTooLargeSnafu,
-    InvalidVersionRangeSnafu, MaxFrameOutOfRangeSnafu, MissingIdempotencyKeySnafu,
-    NonzeroReservedSnafu, UnknownFlagsSnafu, UnknownFrameKindSnafu,
+    BadMagicSnafu, DeniedAxisMismatchSnafu, Error, FaultNotConnectionLevelSnafu,
+    FrameTooLargeSnafu, InvalidVersionRangeSnafu, MaxFrameOutOfRangeSnafu,
+    MissingIdempotencyKeySnafu, NonzeroReservedSnafu, UnknownFlagsSnafu, UnknownFrameKindSnafu,
 };
 use crate::ids::{GrantId, IdempotencyKey, InvocationId, TenantId};
 use crate::outcome::Failure;
@@ -502,6 +502,21 @@ pub struct Response {
 
 impl Message for Response {
     const KIND: FrameKind = FrameKind::Response;
+
+    /// Refuses a failure, in the reply or in a plan's refusal, whose
+    /// narrowing axis does not match its deny code
+    /// ([`Failure::is_well_formed`]).
+    fn check(&self) -> Result<(), Error> {
+        let failure = match &self.body {
+            ResponseBody::Failed(failure) => Some(*failure),
+            ResponseBody::Plan(plan) => plan.refusal,
+            _ => None,
+        };
+        if let Some(failure) = failure {
+            ensure!(failure.is_well_formed(), DeniedAxisMismatchSnafu);
+        }
+        Ok(())
+    }
 }
 
 /// Fault: a connection-level failure (`ProtocolError` or `AuthFailed`)

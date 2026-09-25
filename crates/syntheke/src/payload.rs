@@ -92,7 +92,8 @@ payload! {
 payload! {
     /// `Query`: records within the caller's read scope.
     pub struct QueryRequest {
-        /// Restrict to one session; `None` searches the whole read scope.
+        /// The session to search. Version 1 requires one: `None` is refused
+        /// with `Denied{SessionRequired}`.
         pub session_scope: Option<SessionId>,
         /// The predicate. Its language is not fixed by contract version 1
         /// and is carried as text.

@@ -3,9 +3,9 @@
 use syntheke::{
     ArtifactRef, AuditPage, AuditQueryRequest, AuditScope, AuditSeq, Capability, CaptureLimits,
     CaptureOutcome, CaptureRequest, Ceilings, Cost, DenyCode, Dimension, ExtractionClass, Failure,
-    GrantId, GrantIssueRequest, GrantIssued, GrantRevokeRequest, GrantRevoked, OutcomeKind, Plan,
-    QueryPage, QueryRequest, ReadChunk, ReadRequest, RequestBody, ResponseBody, SessionForkRequest,
-    SessionOpened, SessionScope, SourceRef, Timestamp, TransferClass,
+    GrantId, GrantIssueRequest, GrantIssued, GrantRevokeRequest, GrantRevoked, NarrowingAxis,
+    OutcomeKind, Plan, QueryPage, QueryRequest, ReadChunk, ReadRequest, RequestBody, ResponseBody,
+    SessionForkRequest, SessionOpened, SessionScope, SourceRef, Timestamp, TransferClass,
 };
 use toml::Table;
 
@@ -128,6 +128,9 @@ pub(crate) fn failure(outcome: OutcomeKind, exp: &Table, name: &str) -> TestResu
         OutcomeKind::AuthFailed => Failure::AuthFailed,
         OutcomeKind::Denied => Failure::Denied {
             code: named(code()?, DenyCode::from_name, "deny code", name)?,
+            axis: text(exp, "axis")
+                .map(|axis| named(axis, NarrowingAxis::from_name, "narrowing axis", name))
+                .transpose()?,
         },
         OutcomeKind::NotFoundOrDenied => Failure::NotFoundOrDenied,
         OutcomeKind::ProducerUnavailable => Failure::ProducerUnavailable,
