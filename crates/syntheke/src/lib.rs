@@ -45,8 +45,8 @@ pub use outcome::{
 pub use payload::{
     AuditPage, AuditQueryRequest, AuditRecord, CaptureLimits, CaptureOutcome, CaptureRequest,
     EgressPolicy, GrantIssueRequest, GrantIssued, GrantRevokeRequest, GrantRevoked, IngestReceipt,
-    IngestRequest, Plan, QueryPage, QueryRequest, ReadChunk, ReadRequest, RequestBody,
-    ResponseBody, SessionForkRequest, SessionOpened, SourceRef,
+    IngestRequest, MAX_QUERY_PREDICATE_LEN, Plan, QueryPage, QueryRequest, ReadChunk, ReadRequest,
+    RequestBody, ResponseBody, SessionForkRequest, SessionOpened, SourceRef,
 };
 pub use vocab::{AuditScope, Capability, Mode, SessionScope, TenantClass};
 pub use wire::{

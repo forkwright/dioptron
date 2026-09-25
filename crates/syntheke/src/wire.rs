@@ -7,11 +7,12 @@ use crate::codec::Message;
 use crate::error::{
     BadMagicSnafu, DeniedAxisMismatchSnafu, Error, FaultNotConnectionLevelSnafu,
     FrameTooLargeSnafu, InvalidVersionRangeSnafu, MaxFrameOutOfRangeSnafu,
-    MissingIdempotencyKeySnafu, NonzeroReservedSnafu, UnknownFlagsSnafu, UnknownFrameKindSnafu,
+    MissingIdempotencyKeySnafu, NonzeroReservedSnafu, PredicateTooLongSnafu, UnknownFlagsSnafu,
+    UnknownFrameKindSnafu,
 };
 use crate::ids::{GrantId, IdempotencyKey, InvocationId, TenantId};
 use crate::outcome::Failure;
-use crate::payload::{RequestBody, ResponseBody};
+use crate::payload::{MAX_QUERY_PREDICATE_LEN, RequestBody, ResponseBody};
 use crate::vocab::Mode;
 
 /// Version of the capability contract this crate implements.
@@ -462,15 +463,28 @@ pub struct Request {
 impl Message for Request {
     const KIND: FrameKind = FrameKind::Request;
 
+    /// Refuses an idempotency key outside 16 to 64 bytes, a missing key
+    /// on an executed state-changing request, and a `Query` predicate
+    /// above [`MAX_QUERY_PREDICATE_LEN`] bytes.
     fn check(&self) -> Result<(), Error> {
         let capability = self.body.capability();
-        if let Some(key) = &self.idempotency_key {
-            return key.check();
+        match &self.idempotency_key {
+            Some(key) => key.check()?,
+            None => ensure!(
+                self.mode == Mode::DryRun || !capability.is_state_changing(),
+                MissingIdempotencyKeySnafu { capability }
+            ),
         }
-        ensure!(
-            self.mode == Mode::DryRun || !capability.is_state_changing(),
-            MissingIdempotencyKeySnafu { capability }
-        );
+        if let RequestBody::Query(query) = &self.body {
+            let len = query.predicate.len();
+            ensure!(
+                len <= MAX_QUERY_PREDICATE_LEN,
+                PredicateTooLongSnafu {
+                    len,
+                    max: MAX_QUERY_PREDICATE_LEN
+                }
+            );
+        }
         Ok(())
     }
 }
@@ -494,7 +508,8 @@ pub struct Response {
     /// The request this answers.
     pub request_id: u64,
     /// The invocation the request created or replayed; `None` for a dry-run
-    /// or a refusal that persisted nothing.
+    /// and for every refusal, including one whose `Denied` audit entry was
+    /// written, so a refusal's bytes never depend on what it persisted.
     pub invocation: Option<InvocationId>,
     /// The reply.
     pub body: ResponseBody,
