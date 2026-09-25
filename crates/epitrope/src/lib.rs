@@ -49,7 +49,7 @@ pub use budget::{
 };
 pub use chain::{ChainStatus, check_chain};
 pub use clock::{Clock, FixedClock};
-pub use decision::{AuthzRequest, Decision, authorize, plan};
+pub use decision::{AuthzRequest, Decision, authorize, designated_chain, is_served, plan};
 pub use error::Error;
 pub use grant::{
     Grant, IssueContext, IssueDecision, MAX_TENANT_LINEAGE, Revocation, check_issue, in_lineage,
