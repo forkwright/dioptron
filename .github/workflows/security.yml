@@ -1,0 +1,39 @@
+name: Security
+
+on:
+  # WHY no base-branch filter: stacked PRs have a feature branch as their base.
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # NOTE: daily at 11:23 UTC; an off-peak minute away from :00 and :30.
+    - cron: "23 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  security:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    # WHY: thin caller of the fleet reusable (cargo-deny, prebuilt cargo-audit,
+    # osv-scanner) rather than an inline copy; advisory ignores live in
+    # deny.toml and its derived .cargo/audit.toml and osv-scanner.toml.
+    #
+    # WHY @main: forkwright/.github publishes no tags, so a SHA pin has no
+    # dependabot bump path and freezes. It is first-party CI in the same trust
+    # boundary, not the third-party case a SHA pin defends against.
+    uses: forkwright/.github/.github/workflows/security.yml@main
+    with:
+      has_private_deps: false
+      run_osv: true
+      cargo_audit_timeout_minutes: 15
+      # NOTE: feature resolution for cargo-deny is set once, in deny.toml
+      # [graph] all-features, so local and CI runs scan the same graph.
