@@ -140,3 +140,22 @@ fn is_well_formed_ties_the_axis_to_narrowing_violation() {
         "every other kind is well formed"
     );
 }
+
+#[test]
+fn deny_codes_match_the_contract_list() {
+    let names: Vec<&str> = DenyCode::ALL.iter().map(|c| c.name()).collect();
+    assert_eq!(
+        names,
+        [
+            "CapabilityNotGranted",
+            "ScopeViolation",
+            "GrantNotYetValid",
+            "GrantExpired",
+            "GrantRevoked",
+            "NarrowingViolation",
+            "BudgetUnavailable",
+            "SessionRequired",
+        ],
+        "the version 1 deny codes, in contract order"
+    );
+}

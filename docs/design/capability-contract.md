@@ -76,7 +76,7 @@ version 1 defines:
 | `Read` | Read a stored artifact or record the tenant is authorized to see. |
 | `Query` | Query indexed or knowledge state within the tenant's read scope. |
 | `GrantIssue` | Issue a child grant that attenuates one the tenant holds. |
-| `GrantRevoke` | Revoke a grant the tenant issued, and its descendants. |
+| `GrantRevoke` | Revoke the designated grant or a grant that descends from it, and through chain validity its descendants. |
 | `AuditQuery` | Read audit records within the tenant's audit scope. |
 
 Every request also carries a mode: `Execute` or `DryRun`. Dry-run answers the
@@ -115,12 +115,14 @@ grant that does not exist and a grant held by another tenant return the
 identical `NotFoundOrDenied` response, so a request cannot probe for another
 tenant's grant. A designated grant the tenant holds that cannot authorize the
 call returns the `Denied` code the check reaches: `CapabilityNotGranted`,
-`ScopeViolation`, `GrantNotYetValid`, `GrantExpired`, `GrantRevoked`, or
-`BudgetUnavailable`, or it returns `BudgetExceeded`.
+`ScopeViolation`, `GrantNotYetValid`, `GrantExpired`, `GrantRevoked`,
+`SessionRequired`, or `BudgetUnavailable`, or it returns `BudgetExceeded`.
 
 The checks run in this order, and the first refusal wins: the designated
 grant, the validity of its whole chain, the capability, the session, the
 target, and the budget. Every link of the chain must confer the capability. A
+capability that requires a session (see session requirement below) and names
+none returns `Denied{SessionRequired}`. A
 request that names a session is checked against the session scope of every
 link: a session that does not exist, or one outside scope that the caller does
 not own, returns `NotFoundOrDenied`; the caller's own session outside scope
@@ -132,6 +134,28 @@ Authorization decides identically in `Execute` and `DryRun`; the mode decides
 only what the store persists. A dry-run reports the same refusal in its plan.
 An allowed plan's grant chain lists the chain leaf first, starting at the
 designated grant; a refused plan's grant chain is empty.
+
+### Session requirement
+
+Each capability requires, permits, or forbids a session. The session a call
+acts in comes from its body, as the table names.
+
+| Capability | Session | Taken from |
+|---|---|---|
+| `Capture` | required | `session` |
+| `SessionFork` | required | `parent_session` |
+| `Ingest`, `Read` | required | the session of the named artifact |
+| `Query` | required | `session_scope` |
+| `AuditQuery` | optional; narrows the audit scope | `session` |
+| `SessionCreate`, `GrantIssue`, `GrantRevoke` | forbidden | none |
+
+A required session that the call does not name is refused with
+`Denied{SessionRequired}` at the session check. A named artifact that does not
+exist returns `NotFoundOrDenied`; an existing artifact's session is then checked
+like any named session, so a foreign artifact reads as a missing one. A forbidden session has no field on the wire; the
+authorizer treats a session supplied for such a capability as a fault of its
+caller and decides nothing. A capability a later contract version adds
+requires a session until it states otherwise.
 
 ### Delegation attenuation
 
@@ -193,6 +217,24 @@ revocation invalidates its whole subtree the next time any descendant is
 checked. The sequence on the revocation record is the revocation epoch: a call
 authorized before the epoch and a call authorized after it are distinguishable
 in audit by comparing sequences, without mutating any descendant grant.
+
+### Revocation authority
+
+A `GrantRevoke` request designates grant D and names a target grant T. It is
+authorized only when all of these hold:
+
+- D's chain is valid and every link confers `GrantRevoke`;
+- T exists;
+- T is D, or T descends from D: walking T's parent links reaches D within 256
+  grants.
+
+The designated-grant checks run first and refuse as grant designation states.
+A missing T and a T outside D's subtree (an ancestor of D, including its own
+parent; a sibling; another tenant's grant) return the identical
+`NotFoundOrDenied`. A parent link that is missing, cyclic, or longer than the
+bound ends the walk outside the subtree. A T that already has a revocation
+record succeeds and writes no new record; the reply carries the existing
+record's grant, sequence, and time.
 
 ### Read scopes
 
@@ -363,8 +405,9 @@ Version 1 `Denied` codes, non-exhaustive: `CapabilityNotGranted`,
 `ScopeViolation` (a target outside the grant's target scope),
 `GrantNotYetValid`, `GrantExpired`, `GrantRevoked` (the grant or any link in its
 chain), `NarrowingViolation` (a child grant that does not attenuate its parent;
-the reply names the first failing axis), and `BudgetUnavailable` (a ledger the
-caller does not own cannot cover the declared cost; no dimension is named). A
+the reply names the first failing axis), `BudgetUnavailable` (a ledger the
+caller does not own cannot cover the declared cost; no dimension is named), and
+`SessionRequired` (the capability requires a session and the call names none). A
 `Denied` reply whose axis does not match its code fails validation. Version 1
 narrowing axes, non-exhaustive: `capabilities`, `audit_scope`,
 `session_scope`, `target_scope`, `ceilings`, `expiry`, `depth`, and
@@ -669,6 +712,7 @@ read, a query, an audit query, a session create or fork, a valid narrowing
 grant, a revoke, or a dry-run). A negative fixture asserts a refusal with a
 specific outcome kind (an incompatible version, an oversized frame, a
 cross-tenant read, a foreign designated grant, an expired grant, a narrowing
-violation, a revoked parent, an idempotency conflict, an unavailable producer,
-a failed transfer, a failed extraction, or a forged identity). A test that finds
-a declared fixture missing fails loudly rather than skipping.
+violation, a revoked parent, a missing required session, an idempotency
+conflict, an unavailable producer, a failed transfer, a failed extraction, or a
+forged identity). A test that finds a declared fixture missing fails loudly
+rather than skipping.

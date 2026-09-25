@@ -29,6 +29,8 @@ named_enum! {
         /// The dimension is withheld; the caller's own ledgers report
         /// [`Failure::BudgetExceeded`] instead.
         BudgetUnavailable => "BudgetUnavailable",
+        /// The capability requires a session and the call names none.
+        SessionRequired => "SessionRequired",
     }
 }
 

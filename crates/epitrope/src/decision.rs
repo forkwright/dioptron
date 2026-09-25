@@ -9,9 +9,10 @@ use syntheke::{
 use crate::budget::{BudgetCheck, BudgetRefusal, LedgerState, ReservationPlan, plan_reservation};
 use crate::chain::{ChainStatus, check_chain};
 use crate::clock::Clock;
-use crate::error::{Error, ViewSnafu};
+use crate::error::{Error, SessionNotApplicableSnafu, ViewSnafu};
 use crate::grant::{Grant, in_lineage};
 use crate::origin::Origin;
+use crate::session::{SessionRequirement, session_requirement};
 use crate::view::{LedgerId, Snapshot};
 
 /// One call to authorize.
@@ -31,7 +32,8 @@ pub struct AuthzRequest<'a> {
     pub capability: Capability,
     /// The target the caller supplied; required for `Capture`.
     pub target: Option<&'a str>,
-    /// The session the call acts in, if any.
+    /// The session the call acts in. Whether one is required, optional,
+    /// or forbidden is [`session_requirement`] of the capability.
     pub session: Option<SessionId>,
     /// The declared maximum cost, reserved against every ledger.
     pub declared: Cost,
@@ -96,7 +98,9 @@ impl Decision {
 
 /// Decides one call against the designated grant's chain at `clock.now()`.
 ///
-/// Checks run in this order, and the first refusal wins:
+/// A call that names a session for a capability that acts in none
+/// ([`SessionRequirement::Forbidden`]) is a fault, raised before any read.
+/// Otherwise checks run in this order, and the first refusal wins:
 ///
 /// 1. The designated grant exists and `request.tenant` holds it; otherwise
 ///    [`Decision::NotFoundOrDenied`] through one path, so a foreign grant
@@ -104,7 +108,8 @@ impl Decision {
 /// 2. Every link from the grant to its root is usable now
 ///    ([`check_chain`]).
 /// 3. Every link confers the capability (`CapabilityNotGranted`).
-/// 4. When the call names a session: it exists and every link's session
+/// 4. A capability that requires a session names one (`SessionRequired`).
+///    When the call names a session: it exists and every link's session
 ///    scope admits it (`Own` admits sessions whose owner is in the link
 ///    holder's lineage). A missing session, or one outside scope that the
 ///    caller does not own, is `NotFoundOrDenied`; the caller's own session
@@ -118,34 +123,42 @@ impl Decision {
 ///
 /// # Errors
 ///
-/// [`Error::View`], [`Error::ChainBroken`], [`Error::ChainMalformed`], or
-/// [`Error::LedgerOverflow`]; the caller fails closed.
+/// [`Error::SessionNotApplicable`], [`Error::View`],
+/// [`Error::ChainBroken`], [`Error::ChainMalformed`],
+/// [`Error::TenantLineage`], or [`Error::LedgerOverflow`]; the caller fails
+/// closed.
 pub fn authorize(
     view: &dyn Snapshot,
     request: &AuthzRequest<'_>,
     clock: &dyn Clock,
 ) -> Result<Decision, Error> {
-    let leaf = match view.grant(request.grant).context(ViewSnafu)? {
-        Some(grant) if grant.id == request.grant && grant.holder == request.tenant => grant,
-        _ => return Ok(Decision::NotFoundOrDenied),
-    };
-    let chain = match check_chain(view, leaf, clock.now())? {
-        ChainStatus::Valid(chain) => chain,
-        ChainStatus::Invalid { code, .. } => return Ok(Decision::Denied { code }),
-    };
-    if !chain
-        .iter()
-        .all(|link| link.capabilities.contains(&request.capability))
-    {
-        return Ok(Decision::Denied {
-            code: DenyCode::CapabilityNotGranted,
-        });
+    let requirement = session_requirement(request.capability);
+    if request.session.is_some() && requirement == SessionRequirement::Forbidden {
+        return SessionNotApplicableSnafu {
+            capability: request.capability,
+        }
+        .fail();
     }
+    let chain = match designated_chain(
+        view,
+        request.tenant,
+        request.grant,
+        request.capability,
+        clock,
+    )? {
+        Ok(chain) => chain,
+        Err(refusal) => return Ok(refusal),
+    };
     let session_owner = match request.session {
         Some(session) => match check_session(view, request.tenant, &chain, session)? {
             Ok(owner) => Some((session, owner)),
             Err(refusal) => return Ok(refusal),
         },
+        None if requirement == SessionRequirement::Required => {
+            return Ok(Decision::Denied {
+                code: DenyCode::SessionRequired,
+            });
+        }
         None => None,
     };
     if !target_admitted(&chain, request.capability, request.target) {
@@ -153,8 +166,55 @@ pub fn authorize(
             code: DenyCode::ScopeViolation,
         });
     }
-    let ledgers = ledger_states(view, request.tenant, &chain, session_owner)?;
-    Ok(match plan_reservation(&ledgers, &request.declared)? {
+    reserve_for(
+        view,
+        request.tenant,
+        &chain,
+        session_owner,
+        &request.declared,
+    )
+}
+
+/// Checks 1 to 3 of [`authorize`]: the designated grant, its chain's
+/// validity, and the capability on every link. Returns the chain, leaf
+/// first, or the refusal.
+pub(crate) fn designated_chain(
+    view: &dyn Snapshot,
+    tenant: TenantId,
+    grant: GrantId,
+    capability: Capability,
+    clock: &dyn Clock,
+) -> Result<Result<Vec<Grant>, Decision>, Error> {
+    let leaf = match view.grant(grant).context(ViewSnafu)? {
+        Some(found) if found.id == grant && found.holder == tenant => found,
+        _ => return Ok(Err(Decision::NotFoundOrDenied)),
+    };
+    let chain = match check_chain(view, leaf, clock.now())? {
+        ChainStatus::Valid(chain) => chain,
+        ChainStatus::Invalid { code, .. } => return Ok(Err(Decision::Denied { code })),
+    };
+    if !chain
+        .iter()
+        .all(|link| link.capabilities.contains(&capability))
+    {
+        return Ok(Err(Decision::Denied {
+            code: DenyCode::CapabilityNotGranted,
+        }));
+    }
+    Ok(Ok(chain))
+}
+
+/// Check 6 of [`authorize`]: plans the reservation of `declared` against
+/// every ledger the call debits.
+pub(crate) fn reserve_for(
+    view: &dyn Snapshot,
+    tenant: TenantId,
+    chain: &[Grant],
+    session: Option<(SessionId, TenantId)>,
+    declared: &Cost,
+) -> Result<Decision, Error> {
+    let ledgers = ledger_states(view, tenant, chain, session)?;
+    Ok(match plan_reservation(&ledgers, declared)? {
         BudgetCheck::Fits(reservation) => Decision::Allowed {
             chain: chain.iter().map(|link| link.id).collect(),
             reservation,

@@ -32,7 +32,7 @@ mod tests {
 
     /// Every scenario the contract declares. A missing file fails the test;
     /// an undeclared file fails it too, so a new fixture gets a mapping.
-    const DECLARED: [&str; 22] = [
+    const DECLARED: [&str; 23] = [
         "audit_query_own",
         "capture_success",
         "capture_truncated",
@@ -50,6 +50,7 @@ mod tests {
         "neg_oversized_frame",
         "neg_producer_unavailable",
         "neg_revoked_parent",
+        "neg_session_required",
         "neg_transfer_failed",
         "query_success",
         "read_success",
