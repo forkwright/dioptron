@@ -167,7 +167,7 @@ impl Store {
                 &*tx,
                 slot::PENDING_ARTIFACT,
                 &pending_key,
-                &[tenant_keys.meta()],
+                &tenant_keys.meta_openers(),
             )?
             .context(InconsistentSnafu {
                 what: "transfer-complete invocation has no pending record",

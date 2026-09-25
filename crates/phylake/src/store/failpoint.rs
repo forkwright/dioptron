@@ -3,7 +3,8 @@
 
 use core::fmt;
 
-/// A durable lifecycle boundary: one store transaction each.
+/// A durable boundary: one store transaction each. B1 through B5 are the
+/// invocation lifecycle; the rest are the rekey protocol's commits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Boundary {
@@ -17,6 +18,14 @@ pub enum Boundary {
     Publish,
     /// B5: settle, release, or `UnknownEffect`.
     Terminal,
+    /// The start of a tenant data-key rotation: new key and rekey record.
+    RekeyBegin,
+    /// One rekey batch: re-sealed records and the advanced cursor.
+    RekeyBatch,
+    /// The end of a tenant data-key rotation: the old key retired.
+    RekeyRetire,
+    /// A root key rotation.
+    RootRotation,
 }
 
 impl Boundary {
@@ -29,6 +38,9 @@ impl Boundary {
         Self::Terminal,
     ];
 
+    /// Every rekey boundary, in rotation order.
+    pub const REKEY: [Self; 3] = [Self::RekeyBegin, Self::RekeyBatch, Self::RekeyRetire];
+
     /// The contract's name for the boundary.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -38,6 +50,10 @@ impl Boundary {
             Self::CompleteTransfer => "B3",
             Self::Publish => "B4",
             Self::Terminal => "B5",
+            Self::RekeyBegin => "rekey begin",
+            Self::RekeyBatch => "rekey batch",
+            Self::RekeyRetire => "rekey retire",
+            Self::RootRotation => "root rotation",
         }
     }
 }

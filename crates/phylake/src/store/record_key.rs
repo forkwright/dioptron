@@ -74,6 +74,22 @@ pub(crate) mod store {
         )
     }
 
+    /// A tenant's wrapped addressing subkeys, present once its data key
+    /// has rotated.
+    pub(crate) fn address_keys(index: &SubKey, tenant: TenantId) -> Result<HashedKey> {
+        keyed(index, b"address-keys", &[&tenant.to_bytes()])
+    }
+
+    /// A tenant's data-key rotation record.
+    pub(crate) fn rekey(index: &SubKey, tenant: TenantId) -> Result<HashedKey> {
+        keyed(index, b"rekey", &[&tenant.to_bytes()])
+    }
+
+    /// A crypto-shredded tenant's tombstone.
+    pub(crate) fn tombstone(index: &SubKey, tenant: TenantId) -> Result<HashedKey> {
+        keyed(index, b"tombstone", &[&tenant.to_bytes()])
+    }
+
     /// A grant record.
     pub(crate) fn grant(index: &SubKey, grant: GrantId) -> Result<HashedKey> {
         keyed(index, b"grant", &[&grant.to_bytes()])

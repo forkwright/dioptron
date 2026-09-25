@@ -265,17 +265,26 @@ impl Store {
         Ok(events)
     }
 
-    /// Every registered tenant.
+    /// Every registered tenant that is not shredded.
     ///
-    /// NOTE: a crypto-shred must remove or tombstone the tenant record in
-    /// the transaction that deletes its data key, or this scan fails on
-    /// the shredded tenant's partition.
+    /// A shredded tenant's record is replaced by a tombstone in the same
+    /// transaction that deletes its keys, so its unreadable partition is
+    /// skipped here rather than failing the scan.
     fn tenant_ids(&self, snapshot: &Snapshot) -> Result<Vec<TenantId>> {
         let mut ids = Vec::new();
         for guard in snapshot.iter(self.ks.get(slot::TENANT.keyspace)?) {
             let (key, sealed) = guard.into_inner().context(DatabaseSnafu)?;
-            let plain = Self::open_bytes(&[self.keys.meta()], slot::TENANT, &key, &sealed)?;
-            ids.push(TenantRecord::decode(&plain, slot::TENANT.keyspace.name())?.id);
+            match Self::open_bytes(&[self.keys.meta()], slot::TENANT, &key, &sealed) {
+                Ok(plain) => {
+                    ids.push(TenantRecord::decode(&plain, slot::TENANT.keyspace.name())?.id);
+                }
+                // WHY: the only other kind in `tenants` is a tombstone; it
+                // must still authenticate as one.
+                Err(crate::Error::Open { .. }) => {
+                    Self::open_bytes(&[self.keys.meta()], slot::TOMBSTONE, &key, &sealed)?;
+                }
+                Err(error) => return Err(error),
+            }
         }
         Ok(ids)
     }
@@ -303,7 +312,7 @@ impl Store {
                 break;
             }
             let (key, sealed) = guard.into_inner().context(DatabaseSnafu)?;
-            let plain = Self::open_bytes(&[tenant_keys.audit()], slot::AUDIT, &key, &sealed)?;
+            let plain = Self::open_bytes(&tenant_keys.audit_openers(), slot::AUDIT, &key, &sealed)?;
             let entry = AuditEntryRecord::decode(&plain, Keyspace::Audit.name())?;
             if keep(&entry)? {
                 events.push(AuditEvent {

@@ -6,7 +6,8 @@
 //! missing record from a present one, so the caller can map `None` and a
 //! refusal to the same `NotFoundOrDenied` reply. Only published artifacts
 //! are reachable: a B3 blob and its pending record have no locator and no
-//! session index entry.
+//! session index entry. A shredded owner's artifacts and sessions read
+//! as `None`: their keys are gone.
 
 use fjall::Readable as _;
 use snafu::{OptionExt as _, ResultExt as _};
@@ -15,12 +16,13 @@ use syntheke::{
 };
 
 use super::codec::StoredRecord as _;
+use super::keyring::TenantKeyring;
 use super::record_key::{self, HASHED_KEY_LEN};
 use super::records::{ArtifactRecord, LocatorRecord, SessionIndexRecord};
 use super::view::View;
 use super::{Store, slot};
 use crate::Result;
-use crate::crypto::{BlobAddress, TenantKeys};
+use crate::crypto::BlobAddress;
 use crate::error::{DatabaseSnafu, InconsistentSnafu};
 
 /// A published artifact's side record, without its envelope.
@@ -105,7 +107,7 @@ impl Store {
             .context(InconsistentSnafu {
                 what: "published artifact has no blob",
             })?;
-        let envelope = Self::open_bytes(&[keys.blob()], slot::BLOB, &blob_key, &sealed)?;
+        let envelope = Self::open_bytes(&keys.blob_openers(), slot::BLOB, &blob_key, &sealed)?;
         let total = envelope.len();
         let start = usize::try_from(offset).unwrap_or(usize::MAX).min(total);
         let end = start
@@ -140,7 +142,9 @@ impl Store {
         let Some(record) = view.session_record(session)? else {
             return Ok(None);
         };
-        let keys = self.tenant_keys(&snapshot, record.owner)?;
+        let Some(keys) = self.live_tenant_keys(&snapshot, record.owner)? else {
+            return Ok(None);
+        };
         let prefix = record_key::tenant::session_index(keys.index(), record.owner, session)?;
         let from = after.map_or_else(
             || prefix.to_vec(),
@@ -164,7 +168,7 @@ impl Store {
                 more = true;
                 break;
             }
-            let plain = Self::open_bytes(&[keys.meta()], slot::SESSION_INDEX, &key, &sealed)?;
+            let plain = Self::open_bytes(&keys.meta_openers(), slot::SESSION_INDEX, &key, &sealed)?;
             let entry = SessionIndexRecord::decode(&plain, slot::SESSION_INDEX.keyspace.name())?;
             result_refs.push(entry.artifact);
         }
@@ -176,17 +180,19 @@ impl Store {
         &self,
         reader: &R,
         artifact: ArtifactRef,
-    ) -> Result<Option<(ArtifactRecord, std::sync::Arc<TenantKeys>)>> {
+    ) -> Result<Option<(ArtifactRecord, std::sync::Arc<TenantKeyring>)>> {
         let locator_key = record_key::store::locator(self.keys.index(), artifact)?;
         let Some(locator) =
             self.get_global::<LocatorRecord, _>(reader, slot::LOCATOR, &locator_key)?
         else {
             return Ok(None);
         };
-        let keys = self.tenant_keys(reader, locator.owner)?;
+        let Some(keys) = self.live_tenant_keys(reader, locator.owner)? else {
+            return Ok(None);
+        };
         let side_key = record_key::tenant::artifact(keys.index(), locator.owner, artifact)?;
         let record = self
-            .get::<ArtifactRecord, _>(reader, slot::ARTIFACT, &side_key, &[keys.meta()])?
+            .get::<ArtifactRecord, _>(reader, slot::ARTIFACT, &side_key, &keys.meta_openers())?
             .context(InconsistentSnafu {
                 what: "artifact locator has no side record",
             })?;

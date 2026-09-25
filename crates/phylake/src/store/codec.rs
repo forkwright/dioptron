@@ -12,7 +12,8 @@ use zeroize::Zeroize as _;
 
 use super::records::{
     ArtifactRecord, AuditEntryRecord, AuditStubRecord, GrantRecord, IdemRecord, InvocationRecord,
-    LedgerRecord, LocatorRecord, RevocationRecord, SessionIndexRecord, SessionRecord, TenantRecord,
+    LedgerRecord, LocatorRecord, RekeyRecord, RevocationRecord, SessionIndexRecord, SessionRecord,
+    TenantRecord, TombstoneRecord,
 };
 use crate::Result;
 use crate::error::{DecodeSnafu, EncodeSnafu};
@@ -64,4 +65,6 @@ stored_record! {
     SessionIndexRecord,
     AuditEntryRecord,
     AuditStubRecord,
+    RekeyRecord,
+    TombstoneRecord,
 }

@@ -9,8 +9,9 @@
 //! Two sealing scopes exist (the normative table is
 //! `docs/design/custody-store.md`, "Sealing scope"):
 //!
-//! - store-sealed (root-derived keys): tenants, grants, revocations,
-//!   sessions, invocations, ledgers, artifact locators, and audit stubs.
+//! - store-sealed (root-derived keys): tenants and tombstones, grants,
+//!   revocations, sessions, invocations, ledgers, artifact locators, audit
+//!   stubs, and rekey records.
 //!   Authorization walks grant chains across tenants and recovery scans
 //!   every invocation, so these must open without knowing a tenant first.
 //!   They carry identifiers and amounts, not acquired content.
@@ -25,16 +26,22 @@
 //! cannot distinguish absence from a record the caller may not see.
 
 mod audit;
+mod backup;
 mod claim;
 mod codec;
+mod compact;
 mod directory;
 mod failpoint;
 mod invocation;
+mod keyring;
 mod meta;
 mod read;
 mod record_key;
 mod records;
 mod recovery;
+mod rekey;
+mod root_rotation;
+mod shred;
 mod transition;
 mod view;
 
@@ -59,19 +66,21 @@ use syntheke::TenantId;
 use zeroize::Zeroize as _;
 
 use self::codec::StoredRecord;
+use self::keyring::TenantKeyring;
 use self::records::TenantRecord;
 use crate::Result;
 use crate::crypto::{
     Entropy, KeyId, Keyspace, OsEntropy, RecordKind, SealContext, SealingKey, StoreKeys, StoreSalt,
-    TenantKeys, open, seal_with,
+    open, seal_with,
 };
 use crate::error::{
     DatabaseSnafu, InconsistentSnafu, InjectedCrashSnafu, StoreExistsSnafu, StoreIoSnafu,
-    StoreMissingSnafu, TenantMissingSnafu,
+    StoreMissingSnafu,
 };
 use crate::keyfile::RootKey;
 
 pub use self::audit::{AuditEvent, AuditQuery};
+pub use self::backup::{RestoredStore, verify_restored};
 pub use self::claim::{AuditNote, AuditOutcome, Claimed, IdemClaim};
 pub use self::directory::{
     GrantIssue, IssueOutcome, NewSession, RevokeGrant, RootGrant, TenantRegistration,
@@ -84,6 +93,7 @@ pub use self::meta::SCHEMA_VERSION;
 pub use self::read::ArtifactInfo;
 pub use self::records::Terminal;
 pub use self::recovery::RecoveryReport;
+pub use self::rekey::RekeyStatus;
 pub use self::view::{StoreSnapshot, TenantDirectory, TenantEntry};
 
 /// The id of the root key a new store is created under.
@@ -156,6 +166,8 @@ pub(crate) mod slot {
         SESSION_INDEX => SessionIndex, SESSION_INDEX;
         AUDIT => Audit, AUDIT;
         AUDIT_STUB => AuditStub, AUDIT_STUB;
+        REKEY => Rekey, REKEY;
+        TOMBSTONE => Tenants, TOMBSTONE;
     }
 }
 
@@ -266,7 +278,9 @@ impl StoreOptions {
     ///
     /// Opening reads the plaintext `meta` fields, refuses an unsupported
     /// schema version, and checks the key before any keyspace is created
-    /// or written. Any failure leaves the store as it was.
+    /// or written. Any failure leaves the store as it was. Once the key
+    /// checks, a staging directory an interrupted [`Store::compact`] left
+    /// beside the store is removed.
     ///
     /// # Errors
     ///
@@ -275,33 +289,12 @@ impl StoreOptions {
     /// [`crate::Error::SchemaTooNew`] and
     /// [`crate::Error::MigrationRequired`] for a schema version this build
     /// does not open, [`crate::Error::StoreLocked`] for the wrong root key,
-    /// [`crate::Error::Database`] when the database fails.
+    /// [`crate::Error::Database`] when the database fails,
+    /// [`crate::Error::StoreIo`] or [`crate::Error::StorePathUnnamed`] when
+    /// a leftover staging directory cannot be removed.
     pub fn open(self, root: &RootKey) -> Result<Store> {
-        let marker = self.path.join(FJALL_VERSION_MARKER);
-        let exists = marker.try_exists().context(StoreIoSnafu {
-            path: self.path.clone(),
-        })?;
-        ensure!(
-            exists,
-            StoreMissingSnafu {
-                path: &self.path,
-                missing: "database",
-            }
-        );
-        let db = open_database(&self.path)?;
-        if let Some(missing) = ALL_KEYSPACES
-            .iter()
-            .find(|keyspace| !db.keyspace_exists(keyspace.name()))
-        {
-            return StoreMissingSnafu {
-                path: &self.path,
-                missing: missing.name(),
-            }
-            .fail();
-        }
-        let ks = Keyspaces::open(&db)?;
-        let stored = meta::read(&db.read_tx(), ks.get(Keyspace::Meta)?, &self.path)?;
-        let keys = StoreKeys::unlock(root, stored.root_key_id(), stored.salt(), stored.check())?;
+        let (db, ks, keys) = open_unlocked(&self.path, root)?;
+        compact::remove_leftover(&self.path)?;
         Ok(self.into_store(db, ks, keys))
     }
 
@@ -317,6 +310,40 @@ impl StoreOptions {
             tenant_keys: Mutex::new(HashMap::new()),
         }
     }
+}
+
+/// Opens the existing store database at `path` and unlocks it under
+/// `root`: checks that every keyspace exists, reads the plaintext `meta`
+/// fields, refuses an unsupported schema version, and checks the key.
+/// Writes no record.
+fn open_unlocked(
+    path: &Path,
+    root: &RootKey,
+) -> Result<(SingleWriterTxDatabase, Keyspaces, StoreKeys)> {
+    let marker = path.join(FJALL_VERSION_MARKER);
+    let exists = marker.try_exists().context(StoreIoSnafu { path })?;
+    ensure!(
+        exists,
+        StoreMissingSnafu {
+            path,
+            missing: "database",
+        }
+    );
+    let db = open_database(path)?;
+    if let Some(missing) = ALL_KEYSPACES
+        .iter()
+        .find(|keyspace| !db.keyspace_exists(keyspace.name()))
+    {
+        return StoreMissingSnafu {
+            path,
+            missing: missing.name(),
+        }
+        .fail();
+    }
+    let ks = Keyspaces::open(&db)?;
+    let stored = meta::read(&db.read_tx(), ks.get(Keyspace::Meta)?, path)?;
+    let keys = StoreKeys::unlock(root, stored.root_key_id(), stored.salt(), stored.check())?;
+    Ok((db, ks, keys))
 }
 
 /// Creates `path` (mode 0700) or checks that it is an empty directory.
@@ -371,7 +398,7 @@ pub struct Store {
     clock: Arc<dyn Clock + Send + Sync>,
     failpoint: Arc<dyn Failpoint>,
     entropy: Mutex<Box<dyn Entropy + Send>>,
-    tenant_keys: Mutex<HashMap<TenantId, Arc<TenantKeys>>>,
+    tenant_keys: Mutex<HashMap<TenantId, Arc<TenantKeyring>>>,
 }
 
 impl fmt::Debug for Store {
@@ -514,45 +541,6 @@ impl Store {
     ) -> Result<Option<TenantRecord>> {
         let key = record_key::store::tenant(self.keys.index(), tenant)?;
         self.get_global(reader, slot::TENANT, &key)
-    }
-
-    /// The derived keys of `tenant`, unwrapping its data key on first use.
-    ///
-    /// NOTE: keys are cached only after they are read from a committed
-    /// record, so a rolled-back registration never leaves a cached key.
-    /// Tenant data-key rotation and crypto-shredding must evict the entry
-    /// in the transaction that retires the key.
-    fn tenant_keys<R: Readable>(&self, reader: &R, tenant: TenantId) -> Result<Arc<TenantKeys>> {
-        let cached = self
-            .tenant_keys
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&tenant)
-            .cloned();
-        if let Some(keys) = cached {
-            return Ok(keys);
-        }
-        let record = self
-            .tenant_record(reader, tenant)?
-            .context(TenantMissingSnafu { tenant })?;
-        let key_id = KeyId::new(record.data_key_id);
-        let slot_key = record_key::store::data_key(self.keys.index(), tenant, key_id)?;
-        let wrapped = reader
-            .get(self.ks.get(Keyspace::Keys)?, slot_key)
-            .context(DatabaseSnafu)?
-            .context(InconsistentSnafu {
-                what: "tenant data key is missing",
-            })?;
-        let derived = Arc::new(
-            self.keys
-                .unwrap_tenant_key(&tenant.to_bytes(), &wrapped)?
-                .derive()?,
-        );
-        self.tenant_keys
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(tenant, Arc::clone(&derived));
-        Ok(derived)
     }
 
     /// Now, from the injected clock.

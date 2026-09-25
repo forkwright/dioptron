@@ -50,8 +50,8 @@ holds sealed records.
 | Keyspace | Contents | Sealed |
 |---|---|---|
 | `meta` | schema version, format, active root key id, key-derivation salt, and a key-check value | no (non-sensitive) |
-| `keys` | per-tenant random data keys, each wrapped by a root-derived key-encryption key | yes (wrapped) |
-| `tenants` | tenant records: class, verifying key, bound user ids, parent | yes |
+| `keys` | per-tenant random data keys, each wrapped by a root-derived key-encryption key; a rotated tenant's addressing subkeys, wrapped the same way | yes (wrapped) |
+| `tenants` | tenant records: class, verifying key, bound user ids, parent; tombstones of shredded tenants | yes |
 | `grants` | grant records | yes |
 | `revocations` | revocation records: grant id, effect sequence, effect time | yes |
 | `sessions` | session records | yes |
@@ -63,7 +63,7 @@ holds sealed records.
 | `session_index` | per-session artifact index | yes |
 | `audit` | per-tenant sequenced audit records | yes |
 | `audit_stub` | global minimal record: id, capability, outcome kind, time | yes |
-| `rekey` | in-progress rekey cursors | yes |
+| `rekey` | tenant data-key rotation records: key ids, cursor, progress, done flag | yes |
 
 Keys that contain a tenant, session, or idempotency component are keyed hashes
 under an index subkey, so a raw key does not reveal the plaintext component.
@@ -82,8 +82,8 @@ content.
 | Scope | Sealed under | Keyspaces and record kinds |
 |---|---|---|
 | plaintext | nothing | `meta` |
-| wrapped | the root-derived key-encryption subkey | `keys` (tenant data keys) |
-| store | the root-derived metadata subkey; record keys hashed under the root-derived index subkey | `tenants`, `grants`, `revocations`, `sessions`, `invocations`, `ledgers`, artifact locators in `artifacts`, `audit_stub` |
+| wrapped | the root-derived key-encryption subkey | `keys` (tenant data keys and addressing subkeys) |
+| store | the root-derived metadata subkey; record keys hashed under the root-derived index subkey | `tenants` (records and tombstones), `grants`, `revocations`, `sessions`, `invocations`, `ledgers`, artifact locators in `artifacts`, `audit_stub`, `rekey` |
 | tenant | the tenant's data key: its blob subkey for `blobs`, its audit subkey for `audit`, its metadata subkey for the rest; record keys hashed under the tenant's index subkey and always including the tenant id | `blobs`, published and pending side records in `artifacts`, `session_index`, `idem`, `audit` |
 
 Directory and lifecycle records are store-sealed because authorization walks
@@ -148,7 +148,8 @@ rewritten; a correction is a new artifact with lineage, not a mutation.
 
 The store proves its crash-safety by injection, not by inspection. A failpoint
 trait, a no-op by default, exposes a `before_commit` and an `after_commit` hook
-at each lifecycle boundary B1 through B5 and at each rekey batch commit. A test
+at each lifecycle boundary B1 through B5 and at each rekey commit: the
+rotation's begin, each batch, its retire, and a root rotation. A test
 sets one failpoint, drives the invocation or rekey to it, simulates a crash,
 reopens the store, runs the recovery scan, and asserts the recovered state and
 the producer call count.
@@ -165,7 +166,13 @@ the producer call count.
 | after B4 commit | Visible; roll forward to settle. | unchanged by recovery |
 | before B5 commit | Visible; roll forward to settle. | unchanged by recovery |
 | after B5 commit | Terminal; no change. | unchanged by recovery |
-| before or after a rekey batch commit | Rekey resumes from the last committed cursor. | not applicable |
+| before the rekey begin commit | No rotation; every record under the old key. | not applicable |
+| after the rekey begin commit | New key active; rotation resumes from the start of the walk. | not applicable |
+| before or after a rekey batch commit | Rekey resumes from the last committed cursor; each record opens under exactly one of the two keys. | not applicable |
+| before the rekey retire commit | Walk complete; the retire transaction runs again. | not applicable |
+| after the rekey retire commit | Rotation done; old key deleted. | not applicable |
+| before a root rotation commit | The old root key opens the store; the new one is refused. | not applicable |
+| after a root rotation commit | The new root key opens the store; the old one is refused. | not applicable |
 
 Every recovered terminal is recorded exactly: `Released(Abandoned)` is stored
 as that reason in the invocation record and its audit entry, never as a
@@ -200,6 +207,13 @@ key, stored wrapped by the key-encryption subkey; from a tenant data key the
 store derives that tenant's blob, blob-address, metadata, audit, and index
 subkeys. A tenant's plaintext data keys never touch disk unwrapped.
 
+The index and blob-address subkeys are the tenant's addressing subkeys: every
+tenant record key and blob address is computed under them. They come from the
+tenant's first data key and do not rotate with it (see the rekey protocol). At
+the tenant's first data-key rotation they are stored wrapped under the
+key-encryption subkey, with a label distinct from a wrapped data key's, so the
+first data key can be deleted without losing them.
+
 ### Sealing and additional authenticated data
 
 A sealed value is a record version, a key id, a 24-byte nonce, and the
@@ -228,12 +242,18 @@ share one blob, which is never rewritten once written.
 
 ### Tenant key cache
 
-The store caches each tenant's unwrapped, derived subkeys in memory after the
-first read of its committed tenant record, so a rolled-back registration never
-leaves a cached key. The cache holds the keys in zeroizing containers. Tenant
-data-key rotation and crypto-shredding must evict the tenant's entry in the
-transaction that retires or deletes its data key; until they land, no path
-replaces a tenant's data key.
+The store caches each tenant's unwrapped, derived subkeys in memory, and only
+when the key ids the caller read match the latest committed tenant and rekey
+records, checked under the cache lock; a rolled-back registration therefore
+never leaves a cached key, and a reader holding an older snapshot cannot put
+back keys that a rotation or shred evicted. The cache holds the keys in zeroizing containers. An entry
+is keyed by the active and retiring data-key ids that the caller's own
+transaction or snapshot reads from the tenant and rekey records, and is used
+only when they match; a writer therefore always seals under the key its
+transaction names as active, never under one a concurrent rotation replaced.
+Data-key rotation and crypto-shredding also evict the entry once the commit
+that replaces, retires, or deletes a key is durable, so retired key material is
+wiped when the last operation holding it ends.
 
 ### Locked start and fail-closed
 
@@ -264,24 +284,51 @@ schema migration does not change the wire.
 
 Rekey rotates keys without losing data and survives a crash mid-rotation.
 
-- **Root rotation.** Rotating the root key rewraps every tenant data key and
-  re-seals the global sealed values under the new root, in one transaction. The
-  active root key id in `meta` advances only when that transaction commits.
-- **Tenant data-key rotation.** Rotating a tenant's data key writes a rekey
-  record naming the tenant, the from-key id, the to-key id, the keyspace, a
-  cursor, a done flag, and a total. Batch transactions advance the cursor
-  atomically, re-sealing a bounded number of records per batch. During rotation,
-  readers accept records sealed under either the from-key id or the to-key id, so
-  reads never fail mid-rotation. On restart, rotation resumes from the committed
-  cursor. The final transaction marks the record done and retires the old key. A
-  `rekey status` command reports progress from the record.
-- **Scope for Phase 01.** Blob-address keys do not rotate in this phase, because
-  rotating an address key would re-address every blob; this is documented and
-  deferred.
+- **Root rotation.** Rotating the root key moves the whole store scope to keys
+  derived from the new root key and a fresh salt, in one transaction: every
+  tenant data key (a retiring one included) and every stored set of addressing
+  subkeys is rewrapped under the new key-encryption subkey, every store-sealed
+  record is re-sealed under the new metadata subkey, and every record keyed
+  under the store index subkey moves to its key under the new one. The same
+  transaction writes the new active root key id, salt, and key check to `meta`,
+  so a crash leaves exactly one of the two root keys able to open the store.
+  The operation requires the current root key and refuses one that fails the
+  key check. A ledger record does not name its owner, so ledgers are found
+  from the grants, sessions, and tenants that can own one; a ledger or wrapped
+  key with no owner fails the rotation rather than be lost. One transaction
+  holds the whole store scope in memory, which Phase 01 volumes allow; the
+  store scope carries identifiers and amounts, not acquired content. A batched
+  root rotation, with readers that try two root keys and two index subkeys,
+  lands if that scope outgrows one transaction.
+- **Tenant data-key rotation.** A begin transaction draws the new data key,
+  wraps it, makes it the tenant's active key, and writes a rekey record naming
+  the tenant, the from-key id, the to-key id, the keyspace, a cursor, a done
+  flag, and a total. From that commit on every writer seals the tenant's new
+  records under the new key. Batch transactions walk the tenant-sealed
+  keyspaces in a fixed order (`idem`, `artifacts`, `blobs`, `session_index`,
+  `audit`), re-sealing in place, under the new key, each record of the tenant
+  still sealed under the old one, a bounded number of records per batch, and
+  advance the cursor in the same transaction. A record is recognised as the
+  tenant's by its header naming the old key id and by opening under the old
+  key; another tenant's record with the same key id fails authentication and
+  is left alone. During rotation, readers accept records sealed under either
+  the from-key id or the to-key id, so reads never fail mid-rotation. On
+  restart, rotation resumes from the committed cursor. The final transaction
+  deletes the old wrapped key and marks the record done; because every record
+  under the old key was re-sealed by the walk and no writer seals under it
+  after the begin commit, no record is left under a retired key. The rekey
+  status operation reports progress from the record.
+- **Scope for Phase 01.** The addressing subkeys (blob address and index) do
+  not rotate in this phase, because rotating them would re-address every blob
+  and re-key every tenant record; this is documented and deferred. Record keys
+  and blob keys therefore stay where they are through a data-key rotation.
 
-Crash recovery for rekey is the rekey-batch row of the failure-injection table:
-a crash before or after any batch commit resumes from the last committed cursor,
-and the producer is not involved.
+Crash recovery for rekey is the rekey rows of the failure-injection table: a
+crash before or after any rekey commit resumes from the last committed state,
+and the producer is not involved. Old wrapped keys and values sealed under a
+rotated-out key stay in the database's files until the compaction described
+under crypto-shredding rewrites them away; until then the old root key file
+must stay in custody or be destroyed.
 
 ## Backup and restore
 
@@ -290,11 +337,33 @@ separate custody from the store directory, so a stolen backup without the root
 key yields only sealed bytes. Restore verifies the key-check value and the schema
 version before the store accepts writes: a backup whose root key does not match,
 or whose schema version the binary cannot open, is refused rather than opened.
+The restore check also refuses a copy missing any keyspace. It opens the
+database, which runs the database's own journal recovery, and writes no store
+record.
+
+A backup keeps what the store held when it was copied, sealed under the root
+key of that moment. Two consequences follow. A backup taken before a root
+rotation opens only with the old root key, so destroying that key file also
+retires every such backup. A backup taken before a crypto-shred still holds
+the shredded tenant's wrapped data key, and restoring it with its root key
+brings the tenant's data back; a shred reaches backups only when those copies
+are destroyed, or when the root key they were sealed under is rotated out and
+destroyed.
 
 ## Crypto-shredding
 
 A tenant's durable data is shredded by deleting that tenant's wrapped data key
-and writing a tombstone. Once the wrapped data key is gone, every record sealed
+and writing a tombstone. One transaction deletes every wrapped key of the
+tenant (the active data key, a retiring one mid-rotation, and its addressing
+subkeys) and its rekey record, and replaces its tenant record with a
+tombstone. The tombstone keeps the id reserved: it cannot be registered again,
+operations on it fail as shredded rather than as a missing tenant, reads of its
+artifacts and sessions answer not found, and scans across tenant partitions,
+such as a scoped audit read, skip it. A new call into a session the tenant
+owned is refused as `NotFoundOrDenied`, because its session index entry would
+be sealed under the deleted keys. A shred is refused while an invocation
+of the tenant, or in a session it owns, is not terminal, because recovery
+would need the tenant's keys to settle it. Once the wrapped data key is gone, every record sealed
 under that tenant's derived subkeys is unrecoverable, because the plaintext data
 key existed only wrapped. The global `audit_stub` records survive a shred: they
 carry only an id, a capability, an outcome kind, and a time, no tenant content,
@@ -309,12 +378,29 @@ artifact owners and sessions), states, and timestamps, plus the tenant's
 verifying key and bound user ids. Nothing acquired stays readable: no envelope,
 text view, source reference, provenance digest, blob address, or idempotency
 binding. The per-tenant audit trail is gone with the key; only the global stubs
-remain. A shred must also remove the tenant from the tenant key cache and
-retire its tenant record from the scans that open tenant partitions, such as a
-scoped audit read. Because fjall deletes by tombstone, the old wrapped-key bytes can
-persist in journal or segment files until compaction removes them; a shred is
-complete only once the store has compacted past the deletion, and the raw-disk
-inspection test asserts the wrapped key's bytes are absent afterward.
+remain. The shred evicts the tenant from the tenant key cache.
+
+Because fjall deletes by tombstone, the old wrapped-key bytes persist in journal
+or table files until compaction removes them; a shred is complete only once the
+store has compacted past the deletion. fjall's own major compaction is not
+enough: it drops the deleted value from table files, but the value also sits in
+the write-ahead journal, which fjall 3.1 seals and deletes only after it grows
+past 64 MB, and no public call rotates it, so the bytes survive flush, major
+compaction, and reopen. Compaction therefore rewrites the store: it copies
+every live entry into a fresh database in a sibling staging directory, closes
+both, swaps the two directories with one atomic exchange rename, and removes
+the old one. The store path holds a complete store at every instant, and a
+staging directory an interrupted compaction leaves is removed at the next open.
+From closing the databases until the old directory is removed, compaction holds
+the database lock file of both directories, so a process that opened either one
+in the meantime fails the compaction instead of having its database renamed
+away. A filesystem without the atomic exchange fails the compaction with a
+distinct error, and nothing is swapped: two plain renames would leave an instant
+with no store at the path, so there is no fallback.
+The raw-disk inspection test asserts the shredded tenant's wrapped-key bytes,
+retired data keys included, are present before compaction and absent after it.
+Removal unlinks files and does not overwrite the blocks they used; erasure
+below the filesystem is out of scope for Phase 01.
 
 ## Audit reads
 

@@ -24,7 +24,7 @@ use super::view::View;
 use super::{INITIAL_DATA_KEY_ID, Store, WriteTx, slot};
 use crate::Result;
 use crate::crypto::{Keyspace, TenantDataKey};
-use crate::error::{AuthzSnafu, ConflictSnafu, TenantMissingSnafu};
+use crate::error::{AuthzSnafu, ConflictSnafu, TenantMissingSnafu, TenantShreddedSnafu};
 
 /// A tenant to register.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -256,6 +256,7 @@ impl Store {
     ///
     /// [`crate::Error::TenantMissing`] for an unregistered parent,
     /// [`crate::Error::Conflict`] for a different tenant under the same id,
+    /// [`crate::Error::TenantShredded`] for the id of a shredded tenant,
     /// [`crate::Error::Entropy`] when the data key cannot be drawn, or a
     /// storage failure.
     pub fn register_tenant(&self, registration: &TenantRegistration) -> Result<()> {
@@ -268,6 +269,10 @@ impl Store {
             );
             return Ok(());
         }
+        ensure!(
+            self.tombstone(&tx, id)?.is_none(),
+            TenantShreddedSnafu { tenant: id }
+        );
         if let Some(parent) = registration.parent {
             self.tenant_record(&tx, parent)?
                 .context(TenantMissingSnafu { tenant: parent })?;

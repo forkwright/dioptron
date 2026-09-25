@@ -3,10 +3,14 @@
 #![expect(clippy::expect_used, reason = "test assertions must fail loudly")]
 
 mod audit;
+mod backup;
 mod crash;
 mod directory;
 mod disk;
 mod lifecycle;
 mod open;
+mod rekey;
+mod root;
 mod serving;
+mod shred;
 mod terminal;

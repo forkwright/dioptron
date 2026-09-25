@@ -390,6 +390,87 @@ pub enum Error {
         location: snafu::Location,
     },
 
+    /// The tenant was crypto-shredded: its data keys are gone and its id
+    /// stays reserved.
+    #[snafu(display("tenant {tenant} is shredded"))]
+    TenantShredded {
+        /// The tenant.
+        tenant: syntheke::TenantId,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The tenant has invocations that are not terminal; a shred would
+    /// leave recovery unable to settle them.
+    #[snafu(display("tenant {tenant} has open invocations"))]
+    TenantBusy {
+        /// The tenant.
+        tenant: syntheke::TenantId,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A data-key rotation of the tenant is already in progress; resume it
+    /// instead of starting another.
+    #[snafu(display("a data-key rotation of tenant {tenant} is in progress"))]
+    RekeyInProgress {
+        /// The tenant.
+        tenant: syntheke::TenantId,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// No data-key rotation of the tenant is in progress.
+    #[snafu(display("no data-key rotation of tenant {tenant} is in progress"))]
+    RekeyNotInProgress {
+        /// The tenant.
+        tenant: syntheke::TenantId,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The store path has no final component to name a compaction
+    /// directory after.
+    #[snafu(display("store path {} has no directory name", path.display()))]
+    StorePathUnnamed {
+        /// The store path.
+        path: PathBuf,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// A compaction found another process holding a store directory's
+    /// lock at the swap, so it swapped nothing.
+    #[snafu(display("store directory {} is in use by another process", path.display()))]
+    StoreInUse {
+        /// The locked directory.
+        path: PathBuf,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The filesystem or kernel does not support the atomic directory
+    /// exchange a compaction swaps with; nothing was swapped, and the
+    /// store is not compacted by a non-atomic fallback.
+    #[snafu(display(
+        "the filesystem holding {} does not support an atomic directory exchange \
+         (renameat2 RENAME_EXCHANGE); the store was not compacted",
+        path.display()
+    ))]
+    ExchangeUnsupported {
+        /// The store path.
+        path: PathBuf,
+        /// Source location where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
     /// A record with the caller-chosen id already exists with different
     /// content.
     #[snafu(display("a different {what} already exists under that id"))]
