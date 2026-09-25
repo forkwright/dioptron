@@ -11,6 +11,8 @@
 //! - designated-grant authorization ([`authorize`]), where a grant the
 //!   caller does not hold reads exactly as a missing one, and each
 //!   capability's session requirement ([`session_requirement`]) holds;
+//! - revocation authorization ([`check_revoke`]): a grant revokes only
+//!   itself and its descendants;
 //! - budget reservation and settlement arithmetic ([`plan_reservation`],
 //!   [`settle`]);
 //! - the invocation transition table and restart recovery ([`next_state`],
@@ -33,6 +35,7 @@ mod error;
 mod grant;
 mod lifecycle;
 mod origin;
+mod revoke;
 mod session;
 mod view;
 
@@ -54,5 +57,6 @@ pub use grant::{
 };
 pub use lifecycle::{RecoveryAction, Step, next_state, recovery_action};
 pub use origin::{Origin, OriginPattern, Scheme, TargetScope};
+pub use revoke::{RevokeDecision, check_revoke};
 pub use session::{SessionRequirement, session_requirement};
 pub use view::{GrantView, LedgerId, LedgerView, Snapshot, ViewError};
