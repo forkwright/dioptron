@@ -475,8 +475,11 @@ outcomes, and interact with the lifecycle exactly as revocation does at B2.
 
 A received body is validated with the archive validator before any field is
 read; a body that fails validation is a `ProtocolError` and is never accessed as
-a typed value. Every ambiguous condition fails closed: an unknown flag, an
-over-bound length, a validation failure, a pre-auth request, or a missing key
+a typed value. A body is accepted only if it is the canonical encoding of the
+decoded value, meaning re-encoding that value reproduces the received body byte
+for byte, so trailing, leading, or unreferenced bytes are a `ProtocolError`.
+Every ambiguous condition fails closed: an unknown flag, an over-bound length, a
+validation failure, a non-canonical body, a pre-auth request, or a missing key
 ends in refusal and, where the connection is still coherent, a single error
 frame before close. The protocol never proceeds on a frame it could not fully
 validate.
