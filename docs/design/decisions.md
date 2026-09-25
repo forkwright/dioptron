@@ -44,3 +44,15 @@ Single-operator. Family members get own instances. Peer-tenant model is for huma
 v1: cross-session joint fingerprint (egress, DNS, TLS, HTTP, JavaScript surface, fonts, locale, clock, storage) for a stated web-origin adversary sits in a measured anonymity set no smaller than the current floor, recomputed against the D17.3 distribution corpus at every refresh. Measurable, testable, adversary-scoped.
 
 Measurement contract: `docs/design/fingerprint-unlinkability.md`.
+
+## D17.14 D5 storage substrate: fjall with a STORAGE-TIERS migration exception
+The first durable D5 store is built on fjall 3 transactional keyspaces directly. No qualified fleet tier fits yet: pinax 0.0.4 has no multi-row transaction, no schema migration, and no encryption, and koina exposes no public content-addressed blob API. Per `kanon/crates/basanos/standards/STORAGE-TIERS.md`, this is a named migration exception: the owning crate declares pinax and koina as the target tiers in its roadmap and tracks removal of the direct fjall dependency in a STORAGE-TIERS exception issue. Retirement condition: pinax ships a multi-row transaction with schema migration and encryption, and koina exposes a public content-addressed blob API. Until both exist, raw fjall is the sanctioned substrate. Detail in `docs/design/custody-store.md`.
+
+## D17.15 Encryption at rest in the first durable store
+The first durable D5 store encrypts every sensitive record at rest, satisfying the R11 encryption-at-rest requirement in the first store rather than deferring it. A 0600 root key derives per-purpose subkeys and per-tenant wrapped data keys; sealed records bind version, record kind, key id, keyspace, and record key as additional authenticated data; blob addresses are tenant-keyed so no cross-tenant address oracle exists; the store fails closed on a missing key, wrong permissions, or a key-check mismatch. Key hierarchy, rekey, and crypto-shred detail in `docs/design/custody-store.md`. Closes dioptron#35.
+
+## D17.16 Dry-run writes nothing durable and every invocation is one transaction
+A dry-run invocation writes nothing durable, including no audit record: it ends in memory at the Planned state and its only product is the returned plan (facts, cost, rule chain) per R9.2. Each committed invocation state transition is one store transaction, state-checked so reservation settlement or release happens exactly once. This resolves the dioptron#34 ambiguity about whether dry-run and multi-step invocation leave partial durable state: dry-run leaves none, and a crash between transactions recovers to a single known state. Lifecycle table in `docs/design/capability-contract.md`.
+
+## D17.17 Implementation kickoff for the capability and custody stack
+Phase 01 S2 (the first Rust workspace: contract, authorization, custody, daemon, client) is authorized by operator decision on 2026-09-25, which serves as the crate-creation kickoff that `AGENTS.md` requires. S3 (the Zetesis static-acquisition adapter) stays gated on `docs/design/zetesis-acquisition-boundary.md` and the dioptron#66 dependency-and-compatibility conditions; it is not authorized by this record.
