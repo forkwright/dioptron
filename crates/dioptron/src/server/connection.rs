@@ -64,7 +64,13 @@ async fn run<T, D>(
     let outcome = tokio::select! {
         result = timeout(
             limits.handshake_timeout,
-            handshake(&mut stream, uid, &limits, &shared.directory),
+            handshake(
+                &mut stream,
+                uid,
+                &limits,
+                &shared.directory,
+                &shared.authenticator,
+            ),
         ) => result,
         () = stopped(&mut shutdown) => return,
     };

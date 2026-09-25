@@ -455,9 +455,11 @@ pub(super) fn assert_fired(elapsed: Duration, bound: Duration, what: &str) {
 }
 
 /// Test limits. Timeouts are long so that only tests which shorten one
-/// ever reach it.
+/// ever reach it. The connection bound is wide so a closed connection
+/// whose permit is not yet released cannot refuse the next one.
 pub(super) fn limits() -> Limits {
     Limits {
+        max_connections: 64,
         frame_timeout: Duration::from_secs(10),
         idle_timeout: Duration::from_mins(1),
         max_deadline: Duration::from_secs(30),

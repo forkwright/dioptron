@@ -23,12 +23,12 @@ tokio = { workspace = true, features = ["net", "rt", "io-util", "time", "sync", 
 tracing.workspace = true
 
 [dev-dependencies]
-# WHY zeroize on the dev side: tests hold signing keys to sign handshake
-# transcripts; the daemon itself only verifies.
-ed25519-dalek = { workspace = true, features = ["fast", "zeroize"] }
 # WHY rkyv (dev only): tests serialize bodies that are valid archives but
 # break a contract invariant, which the contract encoder refuses to build.
 rkyv.workspace = true
+# WHY rustix (dev only): the shutdown-signal test sends SIGTERM to its own
+# process through a safe call instead of spawning a `kill` binary. The same
+# rustix version is already in the tree under tempfile; `process` adds only
+# the kill and getpid calls.
+rustix = { workspace = true, features = ["process"] }
 tempfile.workspace = true
-# WHY test-util: paused tokio time makes every timeout test deterministic.
-tokio = { workspace = true, features = ["test-util", "rt", "macros"] }

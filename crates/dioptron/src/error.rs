@@ -65,8 +65,9 @@ pub enum Error {
         location: snafu::Location,
     },
 
-    /// A live listener answers at the socket path.
-    #[snafu(display("socket path {} has a live listener", path.display()))]
+    /// A live listener answers at the socket path, or another daemon holds
+    /// the socket directory's lock.
+    #[snafu(display("socket path {} is in use by another daemon", path.display()))]
     SocketInUse {
         /// The socket path.
         path: PathBuf,
@@ -95,6 +96,17 @@ pub enum Error {
         path: PathBuf,
         /// The socket error.
         source: io::Error,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The operating system random source failed while deriving the
+    /// handshake's dummy verifying key.
+    #[snafu(display("the operating system random source failed"))]
+    RandomSource {
+        /// The random source error.
+        source: getrandom::Error,
         /// Where the error was raised.
         #[snafu(implicit)]
         location: snafu::Location,

@@ -6,6 +6,7 @@ use std::os::unix::net::UnixListener as StdListener;
 use std::path::Path;
 use std::time::Duration;
 
+use rustix::process::{Signal, getpid, kill_process};
 use syntheke::{Failure, ResponseBody};
 use tokio::signal::unix::SignalKind;
 use tokio::time::sleep;
@@ -185,11 +186,72 @@ async fn shutdown_signal_completes_on_sigterm() -> TestResult {
     let _guard = listen(SignalKind::terminate())?;
     let waiter = tokio::spawn(shutdown_signal());
     tokio::task::yield_now().await;
-    let status = std::process::Command::new("kill")
-        .args(["-TERM", &std::process::id().to_string()])
-        .status()?;
-    assert!(status.success(), "kill ran");
+    kill_process(getpid(), Signal::TERM)?;
     tokio::time::timeout(Duration::from_secs(30), waiter).await???;
+    Ok(())
+}
+
+#[test]
+fn default_limits_stay_within_the_memory_budget() {
+    // 16 connections × (10 in flight + 6 per-connection frames) × 1 MiB,
+    // computed independently of the helper.
+    let expected: u64 = 16 * (10 + 6) * 1024 * 1024;
+    assert_eq!(Limits::default().worst_case_bytes(), expected, "formula");
+    assert_eq!(expected, 256 * 1024 * 1024, "exactly the budget");
+    assert!(
+        Limits::default().worst_case_bytes() <= Limits::DEFAULT_MEMORY_BUDGET,
+        "defaults within the documented budget"
+    );
+    assert_eq!(
+        Limits::default().max_frame,
+        1024 * 1024,
+        "the contract's default negotiated bound is kept"
+    );
+}
+
+#[test]
+fn worst_case_bytes_uses_clamped_limits_and_saturates() {
+    let huge = Limits {
+        max_connections: usize::MAX,
+        max_in_flight: usize::MAX,
+        max_frame: u32::MAX,
+        ..Limits::default()
+    };
+    assert_eq!(huge.worst_case_bytes(), u64::MAX, "saturates, never wraps");
+    let zero = Limits {
+        max_connections: 0,
+        max_in_flight: 0,
+        max_frame: 0,
+        ..Limits::default()
+    };
+    assert_eq!(
+        zero.worst_case_bytes(),
+        (1 + 6) * 4096,
+        "one connection, one request, the 4 KiB floor"
+    );
+}
+
+#[tokio::test]
+async fn bind_refuses_a_directory_another_server_holds() -> TestResult {
+    let dir = private_dir()?;
+    let first = bind(&dir.path().join("a.sock"))??;
+    for name in ["a.sock", "b.sock"] {
+        assert!(
+            matches!(
+                bind(&dir.path().join(name))?,
+                Err(Error::SocketInUse { .. })
+            ),
+            "{name}: the directory lock is held"
+        );
+    }
+    assert!(
+        dir.path().join("a.sock").exists(),
+        "the holder's socket is untouched"
+    );
+    drop(first);
+    fs::remove_file(dir.path().join("a.sock"))?;
+    let second = bind(&dir.path().join("b.sock"))??;
+    assert_eq!(second.path(), dir.path().join("b.sock"), "lock released");
     Ok(())
 }
 
@@ -242,16 +304,20 @@ async fn connections_over_the_bound_are_closed_at_once() -> TestResult {
     drop(first);
     // WHY retry: the first connection's task releases its permit after it
     // reads end of stream, which races this reconnect. Until then the
-    // server closes new connections at once, as asserted above.
-    let mut next = None;
-    for _ in 0..200 {
+    // server closes new connections at once, as asserted above. The bound
+    // on retries is generous so a loaded machine does not fail the test.
+    let give_up = tokio::time::Instant::now()
+        .checked_add(Duration::from_secs(30))
+        .ok_or("clock overflow")?;
+    let mut next = loop {
         if let Ok(client) = harness.admitted().await {
-            next = Some(client);
-            break;
+            break client;
+        }
+        if tokio::time::Instant::now() >= give_up {
+            return Err("the permit never came back".into());
         }
         sleep(Duration::from_millis(10)).await;
-    }
-    let mut next = next.ok_or("the permit never came back")?;
+    };
     next.request(&request(2, 1_000)).await?;
     assert_eq!(next.response().await?.request_id, 2, "the permit came back");
     Ok(())

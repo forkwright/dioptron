@@ -3,13 +3,78 @@
 
 use std::time::Duration;
 
-use syntheke::{Failure, ResponseBody, VersionChoice, decode};
+use ed25519_dalek::{Signer as _, SigningKey};
+use syntheke::{Failure, Nonce, ResponseBody, TenantId, VersionChoice, auth_transcript, decode};
 use tokio::time::Instant;
 
+use super::super::handshake::Authenticator;
 use super::super::test_support::{
     CLIENT_NONCE, Client, Harness, SHORT, STRANGER_KEY, TENANT, TENANT_KEY, TestResult,
-    UNBOUND_TENANT, UNKNOWN_TENANT, assert_fired, header, immediate, kind, limits, request,
+    UNBOUND_TENANT, UNKNOWN_TENANT, assert_fired, directory, header, immediate, kind, limits,
+    own_uid, request,
 };
+
+/// A transcript for `tenant` with fixed nonces.
+fn transcript(tenant: TenantId) -> Vec<u8> {
+    auth_transcript(1, tenant, &CLIENT_NONCE, &Nonce::from_bytes([0x32; 16])).to_vec()
+}
+
+#[tokio::test]
+async fn unknown_tenant_is_verified_against_the_dummy_key() -> TestResult {
+    let authenticator = Authenticator::new()?;
+    let directory = directory()?;
+    let signed = transcript(UNKNOWN_TENANT);
+    let signature = SigningKey::from_bytes(&STRANGER_KEY)
+        .sign(&signed)
+        .to_bytes();
+    assert!(
+        !authenticator.authenticate(&directory, UNKNOWN_TENANT, own_uid()?, &signed, &signature),
+        "an unknown tenant never authenticates"
+    );
+    assert_eq!(
+        authenticator.dummy_verifications(),
+        1,
+        "the unknown tenant cost one verification against the dummy key"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn known_tenants_are_verified_against_their_own_key() -> TestResult {
+    let authenticator = Authenticator::new()?;
+    let directory = directory()?;
+    let uid = own_uid()?;
+    let cases = [
+        (TENANT, TENANT_KEY, true, "a bound tenant with its key"),
+        (
+            TENANT,
+            STRANGER_KEY,
+            false,
+            "a bound tenant with a wrong key",
+        ),
+        (
+            UNBOUND_TENANT,
+            TENANT_KEY,
+            false,
+            "a valid key from an unbound uid",
+        ),
+    ];
+    for (tenant, key, expected, case) in cases {
+        let signed = transcript(tenant);
+        let signature = SigningKey::from_bytes(&key).sign(&signed).to_bytes();
+        assert_eq!(
+            authenticator.authenticate(&directory, tenant, uid, &signed, &signature),
+            expected,
+            "{case}"
+        );
+    }
+    assert_eq!(
+        authenticator.dummy_verifications(),
+        0,
+        "known tenants never touch the dummy key"
+    );
+    Ok(())
+}
 
 #[tokio::test]
 async fn handshake_admits_a_bound_tenant_with_a_valid_signature() -> TestResult {

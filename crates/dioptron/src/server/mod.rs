@@ -25,6 +25,7 @@ mod handshake;
 mod seams;
 mod socket;
 
+use std::fs::File;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -42,7 +43,8 @@ use tracing::{Instrument as _, debug, info, info_span, warn};
 
 pub use seams::{ConnIdentity, Dispatcher, TenantAuth, TenantDirectory};
 
-use crate::error::{BindSnafu, Error, SignalSnafu};
+use self::handshake::Authenticator;
+use crate::error::{BindSnafu, Error, RandomSourceSnafu, SignalSnafu};
 
 /// Longest configurable duration; keeps every deadline sum far from
 /// monotonic clock overflow.
@@ -52,8 +54,33 @@ const MAX_DURATION: Duration = Duration::from_hours(24);
 /// descriptors) before trying again.
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 
+/// Frame-sized buffers one admitted connection can hold at once, beyond
+/// one per in-flight request (see [`Limits::worst_case_bytes`]).
+const FRAMES_PER_CONNECTION: u64 = 6;
+
 /// Bounds applied by the server. [`Limits::default`] gives the contract
 /// defaults; [`Server::bind`] clamps every field into its valid range.
+///
+/// # Memory bound
+///
+/// The frame buffers peers can make the server hold at once are bounded by
+///
+/// ```text
+/// max_connections × (max_in_flight + 6) × max_frame
+/// ```
+///
+/// which [`Limits::worst_case_bytes`] computes. Per admitted connection,
+/// each in-flight request holds one frame (its decoded request, then its
+/// response). The reader holds up to four more: the frame being read, its
+/// aligned validation copy, and the value being decoded from it, plus one
+/// decoded frame queued for the connection loop. Writing a response holds
+/// two encoded copies of it. A connection still in the handshake holds
+/// less, since its frames are capped at 4 KiB. Memory a dispatcher
+/// allocates for its own work is outside this bound.
+///
+/// The defaults keep the bound within [`Limits::DEFAULT_MEMORY_BUDGET`]
+/// (256 MiB): 16 connections × (10 + 6) × 1 MiB. The 1 MiB frame bound is
+/// the contract's default negotiated maximum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Limits {
@@ -85,8 +112,8 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_connections: 64,
-            max_in_flight: 16,
+            max_connections: 16,
+            max_in_flight: 10,
             handshake_timeout: Duration::from_millis(u64::from(HANDSHAKE_TIMEOUT_MS)),
             frame_timeout: Duration::from_secs(10),
             idle_timeout: Duration::from_mins(5),
@@ -99,6 +126,22 @@ impl Default for Limits {
 }
 
 impl Limits {
+    /// The worst-case frame memory the default limits stay within: 256 MiB.
+    pub const DEFAULT_MEMORY_BUDGET: u64 = 256 * 1024 * 1024;
+
+    /// The most frame-buffer memory peers can make the server hold at once
+    /// under these limits after clamping, in bytes, saturating at
+    /// `u64::MAX` (see the memory bound above).
+    #[must_use]
+    pub fn worst_case_bytes(self) -> u64 {
+        let limits = self.clamped();
+        let connections = u64::try_from(limits.max_connections).unwrap_or(u64::MAX);
+        let in_flight = u64::try_from(limits.max_in_flight).unwrap_or(u64::MAX);
+        connections
+            .saturating_mul(in_flight.saturating_add(FRAMES_PER_CONNECTION))
+            .saturating_mul(u64::from(limits.max_frame))
+    }
+
     /// These limits with every field clamped into its valid range.
     #[must_use]
     pub fn clamped(self) -> Self {
@@ -171,6 +214,7 @@ impl Close {
 struct Shared<T, D> {
     limits: Limits,
     directory: T,
+    authenticator: Authenticator,
     dispatcher: Arc<D>,
 }
 
@@ -178,6 +222,9 @@ struct Shared<T, D> {
 #[derive(Debug)]
 pub struct Server<T, D> {
     listener: UnixListener,
+    /// The socket directory lock, held until [`Server::serve`] has removed
+    /// the socket file.
+    lock: File,
     path: PathBuf,
     shared: Arc<Shared<T, D>>,
 }
@@ -207,7 +254,9 @@ where
     /// [`Error::InsecureSocketDir`] for the directory;
     /// [`Error::SocketPathOccupied`], [`Error::SocketInUse`], or
     /// [`Error::InspectSocket`] for an existing path that is not a provably
-    /// stale socket; [`Error::Bind`] when binding fails.
+    /// stale socket or a directory another daemon holds;
+    /// [`Error::Bind`] when binding fails; [`Error::RandomSource`] when the
+    /// handshake's dummy key cannot be derived.
     pub fn bind(
         path: impl Into<PathBuf>,
         limits: Limits,
@@ -215,7 +264,8 @@ where
         dispatcher: D,
     ) -> Result<Self, Error> {
         let path = path.into();
-        let listener = socket::bind(&path)?;
+        let authenticator = Authenticator::new().context(RandomSourceSnafu)?;
+        let socket::Bound { listener, lock } = socket::bind(&path)?;
         let listener = match UnixListener::from_std(listener).context(BindSnafu { path: &path }) {
             Ok(listener) => listener,
             Err(error) => {
@@ -226,10 +276,12 @@ where
         };
         Ok(Self {
             listener,
+            lock,
             path,
             shared: Arc::new(Shared {
                 limits: limits.clamped(),
                 directory,
+                authenticator,
                 dispatcher: Arc::new(dispatcher),
             }),
         })
@@ -248,6 +300,7 @@ where
     pub async fn serve(self, shutdown: impl Future<Output = ()>) {
         let Self {
             listener,
+            lock,
             path,
             shared,
         } = self;
@@ -258,7 +311,7 @@ where
             let (stop_tx, stop_rx) = watch::channel(false);
             let mut connections = JoinSet::new();
             let mut shutdown = std::pin::pin!(shutdown);
-            info!("serving");
+            info!(worst_case_bytes = limits.worst_case_bytes(), "serving");
             loop {
                 tokio::select! {
                     biased;
@@ -291,6 +344,9 @@ where
             if let Err(error) = std::fs::remove_file(&path) {
                 warn!(%error, "socket file not removed");
             }
+            // WHY after the removal: a daemon that starts next must not find
+            // this one's socket file unlocked.
+            drop(lock);
             info!("shutting down");
             stop_tx.send_replace(true);
             let drained = timeout(limits.shutdown_grace, async {

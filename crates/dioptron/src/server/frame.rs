@@ -6,7 +6,6 @@ use std::time::Duration;
 use syntheke::{Failure, Fault, FrameHeader, HEADER_LEN, PRE_AUTH_MAX_BODY, encode_frame};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::time::{Instant, timeout_at};
-use tracing::debug;
 
 use super::Close;
 
@@ -39,10 +38,10 @@ impl ReadFail {
             Self::Closed => Close::PeerClosed,
             Self::Io(error) => Close::Io(error),
             Self::Timeout => Close::Fault(Failure::ProtocolError, "partial frame timed out"),
-            Self::Header(error) => {
-                debug!(%error, "invalid frame header");
-                Close::Fault(Failure::ProtocolError, "invalid frame header")
-            }
+            // WHY the error is not logged: its display carries header bytes
+            // the peer chose (magic, kind, flags, length); the log records
+            // a fixed reason only.
+            Self::Header(_invalid) => Close::Fault(Failure::ProtocolError, "invalid frame header"),
         }
     }
 }
