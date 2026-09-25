@@ -1,0 +1,13 @@
+name: dioptron CodeQL config
+
+# WHY: security queries target production code. Test code holds known-answer
+# vectors (fixed keys, fixed nonces) and redaction assertions that format key
+# types with Debug on purpose; the queries flag them as hard-coded
+# cryptographic values and cleartext logging. Dismissing those alerts one at
+# a time would repeat in every crypto slice, so test modules and test-only
+# helpers live in files matched below (see CLAUDE.md, Standards) and stay out
+# of the scan.
+paths-ignore:
+  - "**/tests.rs"
+  - "**/tests/**"
+  - "**/test_support.rs"
