@@ -21,7 +21,7 @@ Standing queries declare fetch budget and schedule. Rules engine and cost accoun
 Sessions sync across plegma peers in operator's device set. CRDT conflict resolution: both forks persist on rejoin, operator chooses merge or separate. Forking-while-synced creates new lineage with provenance.
 
 ## D17.7 Audit partition access
-Audit partition read-restricted: operator has full read via desktop UI. Agents/sub-agents read only their own facts or facts from owned sessions. Rules cannot read audit during evaluation (prevents side channel). Audit reads through explicit operator-initiated query path.
+Audit read is `audit.query`, a capability on the common surface, scoped by grant like any other verb; no caller class gets bespoke access. Default grants: operator All; agents and sub-agents Own+OwnedSessions. Rules cannot read audit during evaluation (prevents side channel). Every audit read is itself audited with the grant and scope used. Any system-only audit authority is an explicit non-delegable capability, never a caller-class carve-out.
 
 ## D17.8 Update mechanism
 Engine band: slow cadence, reproducible builds, operator-initiated. Operations band: faster cadence (CT rules, fingerprint distributions, tracker rulesets, verb patches), same signing infrastructure, applied without engine restart. Rollback per-band and atomic.
