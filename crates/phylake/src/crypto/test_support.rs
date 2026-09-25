@@ -1,0 +1,102 @@
+#![expect(clippy::expect_used, reason = "test helpers must fail loudly")]
+
+use std::mem::MaybeUninit;
+
+use secrecy::SecretBox;
+use snafu::IntoError;
+
+use super::{Entropy, KEY_LEN, KeyId, StoreKeys, StoreSalt, TenantDataKey};
+use crate::Result;
+use crate::error::EntropySnafu;
+use crate::keyfile::RootKey;
+
+/// Root key bytes shared by the crypto test modules.
+pub(crate) const ROOT_BYTES: [u8; 32] = [0x11; 32];
+/// Root key id shared by the crypto test modules.
+pub(crate) const ROOT_ID: KeyId = KeyId::new(1);
+
+/// Store keys derived from [`ROOT_BYTES`] under a fixed salt.
+pub(crate) fn store_keys() -> StoreKeys {
+    let root = RootKey::from_bytes(ROOT_BYTES);
+    StoreKeys::derive(&root, ROOT_ID, &StoreSalt::from_bytes([0x22; 32])).expect("derive")
+}
+
+/// A tenant data key with id `id` whose bytes are all `fill`.
+pub(crate) fn tenant_key(id: u32, fill: u8) -> TenantDataKey {
+    TenantDataKey::from_secret(KeyId::new(id), SecretBox::new(Box::new([fill; KEY_LEN])))
+}
+
+/// An entropy source that always fails.
+pub(crate) struct FailingEntropy;
+
+impl Entropy for FailingEntropy {
+    fn fill<'a>(&mut self, _dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
+        Err(EntropySnafu.into_error(getrandom::Error::UNSUPPORTED))
+    }
+}
+
+/// An entropy source that reports only the first byte as initialized, to
+/// cover the length check in [`super::random_array`].
+pub(crate) struct ShortEntropy;
+
+impl Entropy for ShortEntropy {
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
+        let first = dest.get_mut(..1).expect("non-empty draw");
+        Ok(first.write_copy_of_slice(&[0x5a]))
+    }
+}
+
+/// An entropy source that writes 0x40, 0x41, ... for any length, so a
+/// generated key can be compared with the exact bytes drawn.
+pub(crate) struct PatternEntropy;
+
+/// The 32 bytes [`PatternEntropy`] writes for a key draw, spelled out so
+/// tests compare against a value independent of the generator.
+pub(crate) const PATTERN_32_HEX: &str =
+    "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f";
+
+impl Entropy for PatternEntropy {
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
+        let bytes: Vec<u8> = (0..dest.len())
+            .map(|i| 0x40_u8.wrapping_add(u8::try_from(i).expect("small index")))
+            .collect();
+        Ok(dest.write_copy_of_slice(&bytes))
+    }
+}
+
+/// An entropy source that returns the fixed nonce 0xa0..=0xb7, so a
+/// sealed value can be compared byte for byte with a known answer.
+pub(crate) struct FixedNonce;
+
+impl Entropy for FixedNonce {
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
+        assert_eq!(
+            dest.len(),
+            super::NONCE_LEN,
+            "FixedNonce serves nonces only"
+        );
+        let nonce: Vec<u8> = (0xa0_u8..).take(super::NONCE_LEN).collect();
+        Ok(dest.write_copy_of_slice(&nonce))
+    }
+}
+
+/// Decode hex, ignoring any non-hex characters between digits.
+pub(crate) fn unhex(s: &str) -> Vec<u8> {
+    let clean: Vec<u8> = s.bytes().filter(u8::is_ascii_hexdigit).collect();
+    clean
+        .chunks(2)
+        .map(|pair| {
+            let pair = std::str::from_utf8(pair).expect("ascii");
+            u8::from_str_radix(pair, 16).expect("hex")
+        })
+        .collect()
+}
+
+/// Lowercase hex of `bytes`, for asserting key bytes are absent from text.
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
+}
