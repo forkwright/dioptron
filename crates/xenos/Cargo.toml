@@ -1,0 +1,13 @@
+[package]
+name = "xenos"
+description = "Independent Dioptron wire client for process-level acceptance tests."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# WHY: a test client, not a supported consumer library.
+publish = false
+
+[lints]
+workspace = true

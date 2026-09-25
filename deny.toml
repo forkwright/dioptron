@@ -1,0 +1,36 @@
+# cargo-deny configuration.
+#
+# Advisory ignores live here only. `.cargo/audit.toml` and
+# `osv-scanner.toml` are derived from this list (kanon SUPPLY-CHAIN.md).
+
+[graph]
+targets = []
+# WHY true: the gate builds with --all-features, so feature-gated
+# dependencies must pass the same license, ban, and advisory checks.
+all-features = true
+
+[advisories]
+ignore = []
+
+[licenses]
+# WHY only the workspace's own license: the skeleton crates have no
+# external dependencies, and cargo-deny warns on allowances no crate uses.
+# Each implementation slice adds the licenses its new dependencies need
+# (for example MIT, Apache-2.0, BSD-3-Clause, Unicode-3.0), with the
+# dependency that needs them.
+allow = [
+    "LicenseRef-PolyForm-Noncommercial-1.0.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+# WHY: lets a publish = false crate (xenos) take path dependencies without a
+# version. Publishable crates still pin internal dependencies by version,
+# declared once in [workspace.dependencies].
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

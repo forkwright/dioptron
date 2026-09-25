@@ -3,6 +3,10 @@
 name: CodeQL
 
 on:
+  # WHY pull_request: with Rust code in the tree, findings should block a PR
+  # rather than surface after merge; a check that never runs on a PR cannot
+  # be required.
+  pull_request:
   push:
     branches: [main]
   schedule:
@@ -39,3 +43,33 @@ jobs:
         uses: github/codeql-action/analyze@dd677812177e0c29f9c970a6c58d8607ae1bfefd # v4
         with:
           category: /language:actions
+
+  analyze-rust:
+    name: Analyze (rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # WHY this action and not a fixed channel: it reads rust-toolchain.toml,
+      # so the extractor resolves the workspace with the pinned toolchain.
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          cache: false
+      # WHY build-mode none: CodeQL extracts Rust from source without a
+      # traced build, so there is no autobuild step to run.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@dd677812177e0c29f9c970a6c58d8607ae1bfefd # v4
+        with:
+          languages: rust
+          build-mode: none
+          queries: +security-extended
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@dd677812177e0c29f9c970a6c58d8607ae1bfefd # v4
+        with:
+          category: /language:rust

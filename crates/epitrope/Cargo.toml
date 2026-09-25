@@ -1,0 +1,11 @@
+[package]
+name = "epitrope"
+description = "Dioptron authorization: grant narrowing, chain validity, budgets, and invocation transitions."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
