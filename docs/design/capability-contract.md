@@ -56,7 +56,9 @@ challenge that includes both sides' nonces (see the wire protocol). The server
 admits the connection only when the signature verifies against the registered
 key and the peer user id is in that tenant's bound set. After the handshake,
 every request on that connection is attributed to that tenant by the connection
-alone; requests carry no tenant field to forge. Every persisted invocation and
+alone; requests carry no tenant field to forge. Authority is named, never
+inferred: each request designates the one grant it acts under (see grant
+designation below). Every persisted invocation and
 audit record names the acting tenant, satisfying the attribution requirement
 R2.4.
 
@@ -94,6 +96,25 @@ for `Capture`), per-dimension budget ceilings, a validity window
 (`not_before`, `expires_at`), and, when it is a child grant, its parent grant,
 its depth, and the maximum depth the chain permits.
 
+### Grant designation
+
+Every capability request, in `Execute` and `DryRun` mode alike, carries a
+`grant` field naming the one grant it acts under. The daemon authorizes the
+request against that grant and its chain only. It never searches the tenant's
+other grants for one that would allow the call, so a request holds no authority
+its caller did not name, and a tenant holding several grants cannot be steered
+into acting under one it did not choose. Identity stays bound to the
+connection; the `grant` field names authority, not identity.
+
+The designated grant must be held by the connection's tenant. A designated
+grant that does not exist and a grant held by another tenant return the
+identical `NotFoundOrDenied` response, so a request cannot probe for another
+tenant's grant. A designated grant the tenant holds that cannot authorize the
+call returns the `Denied` code the check reaches: `CapabilityNotGranted`,
+`ScopeViolation`, `GrantNotYetValid`, `GrantExpired`, or `GrantRevoked`. A
+dry-run reports the same refusal in its plan, and a plan's grant chain starts at
+the designated grant.
+
 ### Delegation attenuation
 
 A child grant is valid only if it attenuates its parent on every axis at once:
@@ -104,7 +125,11 @@ A child grant is valid only if it attenuates its parent on every axis at once:
   dimension at issue time;
 - its `expires_at` is at or before the parent's;
 - its depth is less than the chain's maximum depth;
-- the issuer holds `GrantIssue` under the same parent.
+- the parent is the grant the issuing request designates, and it confers
+  `GrantIssue`.
+
+A `GrantIssue` request names its parent only through its designated grant; its
+body carries no second parent field that could disagree with it.
 
 A child can never be broader than its parent on any axis. The contract defines
 no widening operation.
@@ -209,7 +234,8 @@ re-dispatches.
 Every state-changing request carries a caller-supplied idempotency key of 16 to
 64 bytes. The store holds an idempotency index keyed by a keyed hash over the
 tenant, the capability, and the key, mapping to the invocation id and a digest
-of the request.
+of the request. The digest covers the designated grant, so the same key sent
+under a different grant is an `IdempotencyConflict`.
 
 - Same key, same request digest: the current or terminal outcome of the
   existing invocation is returned. If it is still running, the caller observes
@@ -292,7 +318,9 @@ use the reply to probe for the existence of another tenant's artifacts,
 sessions, or records. Both cases are answered through the same code path; the
 contract promises byte-identical replies, not constant-time handling, and makes
 no timing claim beyond that. `Denied{code}` is used only where the caller is
-already entitled to know the resource exists. `BudgetExceeded` names a dimension only on
+already entitled to know the resource exists. The rule covers grants too: a
+designated grant that does not exist and a grant held by another tenant return
+the identical `NotFoundOrDenied`. `BudgetExceeded` names a dimension only on
 the caller's own ledgers, never a parent's or another tenant's. No outcome ever
 echoes a target, artifact reference, or URL the caller did not itself supply.
 
@@ -356,6 +384,23 @@ read into an aligned buffer. Zero-copy access applies only after the archive
 validator has accepted the whole body; it never replaces validation. Wire types
 are non-recursive, so validation cannot be driven into unbounded depth.
 
+Version 1 defines eight frame kinds; any other kind byte is rejected.
+
+| Kind byte | Frame | Direction | Body |
+|---|---|---|---|
+| 1 | `ClientHello` | client to server | Supported version range, tenant identifier, client nonce. |
+| 2 | `ServerHello` | server to client | Chosen version or `Incompatible`, server nonce, negotiated maximum body. |
+| 3 | `Auth` | client to server | Ed25519 signature over the authentication transcript. |
+| 4 | `Admitted` | server to client | No fields. The handshake succeeded; requests may follow. |
+| 5 | `Request` | client to server | One capability request (see request fields). |
+| 6 | `Cancel` | client to server | The request id to cancel. |
+| 7 | `Response` | server to client | The request id, the invocation id when the call persisted one, and the reply. |
+| 8 | `Fault` | server to client | `ProtocolError` or `AuthFailed` only, sent once before the server closes. |
+
+A failure that answers one request travels in a `Response`; `Fault` carries
+only the two connection-level kinds, and a receiver rejects a `Fault` carrying
+any other.
+
 ### Bounds
 
 Before the handshake completes, a frame body is capped at 4 KiB. After version
@@ -375,7 +420,14 @@ nonce, and the negotiated maximum frame size. The client then sends an auth
 frame carrying an Ed25519 signature over a fixed label, the chosen version, the
 tenant identifier, and both nonces. The server admits the connection only when
 the signature verifies against the tenant's registered key and the peer user id
-is in the tenant's bound set.
+is in the tenant's bound set, and answers an admitted connection with
+`Admitted`.
+
+The signed transcript is 66 bytes of fixed-width fields concatenated in this
+order with no separators: the 16-byte ASCII label `dioptron-auth-v1`, the chosen
+version as a 2-byte little-endian integer, the 16-byte tenant identifier, the
+16-byte client nonce, and the 16-byte server nonce. Every field has a fixed
+width, so two different inputs never produce the same transcript.
 
 An incompatible version range ends the handshake before authentication. Every
 authentication failure returns the identical `AuthFailed`: a wrong key, a
@@ -386,9 +438,24 @@ client.
 ### Peer identity binding
 
 After the handshake, identity comes from the connection alone. Requests carry no
-tenant field, so there is nothing to forge; a request's authority is the
-connection's admitted tenant. This is the same binding described under tenants
-and identity, enforced at the wire.
+tenant field, so there is nothing to forge; a request acts as the connection's
+admitted tenant, under the grant it designates, which that tenant must hold.
+This is the same binding described under tenants and identity, enforced at the
+wire.
+
+### Request fields and units
+
+A `Request` frame carries a caller-chosen request id, unique among the
+connection's in-flight requests; the designated `grant`; an idempotency key,
+required on an executed state-changing request (`SessionCreate`,
+`SessionFork`, `Capture`, `Ingest`, `GrantIssue`, `GrantRevoke`); the mode; a
+relative deadline; and the capability body.
+
+Identifiers travel as their 16 raw bytes and display as 26-character ULIDs.
+Wall-clock times on the wire (grant validity bounds, revocation effect times,
+audit record times) are signed 64-bit milliseconds since the Unix epoch, UTC.
+Durations (the request deadline, the wall-time budget dimension) are unsigned
+milliseconds.
 
 ### Cancellation and deadline
 
@@ -464,9 +531,9 @@ Zetesis's alone.
 ## Fixture schema
 
 The request and response fixtures under `docs/contract/fixtures/*.toml` are the
-machine-checkable statement of this contract. They are consumed later by the
-contract crate's tests through `include_str!`, so the schema is regular: one
-scenario per file, each file self-describing.
+machine-checkable statement of this contract. The contract crate's tests read
+every file in that directory, so the schema is regular: one scenario per file,
+each file self-describing.
 
 Every fixture file has three tables:
 
@@ -488,10 +555,11 @@ scenario setup; a key in `[expected]` is either a reply field or an
 observation.
 
 - **Wire fields** carried by the request or handshake frame: `capability`,
-  `mode`, `idempotency_key` (hex-encoded bytes), `session` (the session the
+  `mode`, `grant` (the grant the request designates; in a `GrantIssue`, the
+  parent), `idempotency_key` (hex-encoded bytes), `session` (the session the
   request acts in), `target`, `max_output_bytes`, `max_transfer_bytes`,
   `artifact_ref`, `offset`, `len`, `predicate`, `session_scope`,
-  `parent_session`, `parent_grant`, `holder`, `capabilities`, `target_scope`,
+  `parent_session`, `holder`, `capabilities`, `target_scope`,
   `ceiling_<dimension>` (for example `ceiling_fetches`,
   `ceiling_bytes_transferred`), `expires_at`, `target_grant` (the grant a
   `GrantRevoke` names), `audit_scope`; for handshake frames `frame`,
@@ -499,8 +567,9 @@ observation.
   tenant identifier in a `ClientHello`).
 - **Scenario setup**, which the test arranges and the wire never carries:
   `tenant` in a capability request (the tenant the connection authenticated as;
-  requests carry no tenant field), `grant` (the grant that authorizes the call),
-  `clock_now`, `grant_expires_at`, `parent_capabilities`,
+  requests carry no tenant field), `clock_now`, `grant_expires_at`,
+  `parent_grant` (the designated grant's parent in its chain),
+  `parent_capabilities`,
   `parent_revoked_at_sequence`, `prior_request_digest`, `producer_fault`,
   `peer_uid`, `bound_uids`, `cause` (one of `wrong_key`, `replayed_signature`,
   `uid_not_bound`, `pre_auth_request`, `unknown_tenant`), `declared_len`,
@@ -524,14 +593,14 @@ observation.
 Fixtures share one synthetic cast so the scenarios agree with each other. The
 operator (id ending `tnt0a`) holds root grant `grn0a`. Agent `tnt0b` holds
 `grn0b`, a child of `grn0a`, and owns session `ses0a`. Sub-agent `tnt0c` holds
-`grn0c`, a child of `grn0b` issued by `tnt0b`. Tenant `tnt0f` holds no grant on
-`tnt0b`'s sessions.
+`grn0c`, a child of `grn0b` issued by `tnt0b`. Tenant `tnt0f` holds `grn0f`,
+which names none of `tnt0b`'s sessions.
 
 A positive fixture asserts a successful path (a capture, a truncated capture, a
 read, a query, an audit query, a session create or fork, a valid narrowing
 grant, a revoke, or a dry-run). A negative fixture asserts a refusal with a
 specific outcome kind (an incompatible version, an oversized frame, a
-cross-tenant read, an expired grant, a narrowing violation, a revoked parent, an
-idempotency conflict, an unavailable producer, a failed transfer, a failed
-extraction, or a forged identity). A test that finds a declared fixture missing
-fails loudly rather than skipping.
+cross-tenant read, a foreign designated grant, an expired grant, a narrowing
+violation, a revoked parent, an idempotency conflict, an unavailable producer,
+a failed transfer, a failed extraction, or a forged identity). A test that finds
+a declared fixture missing fails loudly rather than skipping.

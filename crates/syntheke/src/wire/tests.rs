@@ -15,6 +15,7 @@ fn header_bytes(kind: u8, flags: u8, reserved: u16, len: u32) -> [u8; HEADER_LEN
 fn read_request(key: Option<IdempotencyKey>, mode: Mode) -> Request {
     Request {
         request_id: 9,
+        grant: GrantId::from_bytes([3; 16]),
         idempotency_key: key,
         mode,
         deadline_ms: 30_000,
@@ -312,6 +313,29 @@ fn request_check_requires_a_key_on_executed_state_changes() -> TestResult {
     let read = read_request(None, Mode::Execute);
     let decoded: Request = decode(&encode(&read)?, DEFAULT_MAX_BODY)?;
     assert_eq!(decoded, read, "a read changes no state and needs no key");
+    Ok(())
+}
+
+#[test]
+fn request_carries_its_designated_grant_in_both_modes() -> TestResult {
+    for mode in [Mode::Execute, Mode::DryRun] {
+        let request = read_request(None, mode);
+        let other = Request {
+            grant: GrantId::from_bytes([4; 16]),
+            ..request.clone()
+        };
+        let decoded: Request = decode(&encode(&request)?, DEFAULT_MAX_BODY)?;
+        assert_eq!(
+            decoded.grant,
+            GrantId::from_bytes([3; 16]),
+            "{mode}: the designated grant survives the wire"
+        );
+        assert_ne!(
+            encode(&request)?.as_slice(),
+            encode(&other)?.as_slice(),
+            "{mode}: the grant is part of the encoded request"
+        );
+    }
     Ok(())
 }
 

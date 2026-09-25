@@ -139,7 +139,10 @@ impl Client {
             .decode(PRE_AUTH_MAX_BODY)?;
         let version = match reply.version {
             VersionChoice::Chosen(version) => version,
-            VersionChoice::Incompatible => return IncompatibleSnafu { min, max }.fail(),
+            // WHY the wildcard fails closed as Incompatible: a decision this
+            // contract version does not define names no version the client
+            // can speak.
+            VersionChoice::Incompatible | _ => return IncompatibleSnafu { min, max }.fail(),
         };
         ensure!(
             versions.contains(&version),

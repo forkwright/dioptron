@@ -10,7 +10,8 @@ named_enum! {
     /// Used only where the caller is already entitled to know the resource
     /// exists; anything else is [`Failure::NotFoundOrDenied`].
     pub enum DenyCode {
-        /// No grant the tenant holds confers the requested capability.
+        /// The request's designated grant does not confer the requested
+        /// capability.
         CapabilityNotGranted => "CapabilityNotGranted",
         /// The target is outside the grant's target scope.
         ScopeViolation => "ScopeViolation",
@@ -42,7 +43,7 @@ named_enum! {
         Expiry => "expiry",
         /// The child's depth reaches the chain's maximum depth.
         Depth => "depth",
-        /// The issuer does not hold `GrantIssue` under the parent.
+        /// The designated parent grant does not confer `GrantIssue`.
         IssuerAuthority => "issuer_authority",
     }
 }

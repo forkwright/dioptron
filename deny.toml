@@ -13,18 +13,20 @@ all-features = true
 ignore = []
 
 [licenses]
-# NOTE: cargo-deny warns on allowances no crate uses, so each
-# implementation slice adds the licenses its new dependencies need, with the
-# dependency that needs them.
+# WHY this list: the workspace's own license plus what current dependencies
+# need; cargo-deny warns on allowances no crate uses. Each implementation
+# slice adds the licenses its new dependencies need, with the dependency
+# that needs them.
+# - MIT, Apache-2.0: rkyv and its support crates (MIT), snafu, toml, and
+#   their build dependencies (dual-licensed MIT OR Apache-2.0).
+# - BSD-3-Clause: ed25519-dalek, curve25519-dalek, and subtle (Ed25519
+#   tenant authentication in xenos).
+# - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
 allow = [
-    "LicenseRef-PolyForm-Noncommercial-1.0.0",
-    # rkyv, bytecheck, rancor, snafu, serde, toml, and their build deps.
-    "MIT",
     "Apache-2.0",
-    # ed25519-dalek, curve25519-dalek, and subtle (Ed25519 tenant
-    # authentication).
     "BSD-3-Clause",
-    # unicode-ident, a proc-macro build dependency.
+    "LicenseRef-PolyForm-Noncommercial-1.0.0",
+    "MIT",
     "Unicode-3.0",
 ]
 confidence-threshold = 0.8
@@ -36,13 +38,16 @@ wildcards = "deny"
 # version. Publishable crates still pin internal dependencies by version,
 # declared once in [workspace.dependencies].
 allow-wildcard-paths = true
-# WHY: the ecosystem is mid-migration from syn 2 to syn 3. rkyv_derive and
-# bytecheck_derive use syn 3 while snafu-derive and munge_macro (inside
-# rkyv) still use syn 2. Both copies are proc-macro build dependencies and
-# never reach a built artifact. Drop this entry once snafu and munge move
-# to syn 3.
+# WHY: the ecosystem is mid-migration from syn 2 to syn 3. rkyv_derive
+# 0.8.18, bytecheck_derive 0.8.3, and ptr_meta_derive 0.3.2 use syn 3; the
+# latest snafu-derive (0.9.2) and munge_macro (0.4.7, inside rkyv) still use
+# syn 2. Both copies are proc-macro build dependencies and never reach a
+# built artifact. The one way to a single syn is holding rkyv at 0.8.17 with
+# bytecheck 0.8.2 and ptr_meta 0.3.1, which pins the wire validator below
+# its current release to dedupe a build tool; rejected. Retire this entry
+# when snafu-derive and munge_macro release on syn 3.
 skip = [
-    { crate = "syn@2", reason = "proc-macro build dependency split across syn 2 and syn 3" },
+    { crate = "syn@2", reason = "proc-macro build dependency; snafu-derive and munge_macro have no syn 3 release yet" },
 ]
 
 [sources]

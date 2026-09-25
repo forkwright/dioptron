@@ -10,8 +10,8 @@ use std::time::Duration;
 use ed25519_dalek::{Signature, Signer as _};
 use syntheke::{
     AUTH_LABEL, Admitted, ArtifactRef, Auth, CaptureLimits, CaptureRequest, ClientHello, Failure,
-    Fault, FrameKind, IdempotencyKey, Mode, PRE_AUTH_MAX_BODY, ReadRequest, Request, RequestBody,
-    Response, ResponseBody, ServerHello, SessionId, VersionChoice, auth_transcript,
+    Fault, FrameKind, GrantId, IdempotencyKey, Mode, PRE_AUTH_MAX_BODY, ReadRequest, Request,
+    RequestBody, Response, ResponseBody, ServerHello, SessionId, VersionChoice, auth_transcript,
 };
 
 use super::*;
@@ -32,6 +32,7 @@ fn connect(stream: UnixStream) -> Result<Client, Error> {
 fn read_request(request_id: u64) -> Request {
     Request {
         request_id,
+        grant: GrantId::from_bytes([0x22; 16]),
         idempotency_key: None,
         mode: Mode::Execute,
         deadline_ms: 30_000,
@@ -46,6 +47,7 @@ fn read_request(request_id: u64) -> Request {
 fn capture_request(request_id: u64, target: String, key: Option<IdempotencyKey>) -> Request {
     Request {
         request_id,
+        grant: GrantId::from_bytes([0x22; 16]),
         idempotency_key: key,
         mode: Mode::Execute,
         deadline_ms: 30_000,
@@ -595,6 +597,51 @@ fn send_request_refuses_locally_and_stays_usable() {
 
     let response = client.call(&read_request(3)).expect("still usable");
     assert_eq!(response.request_id, 3, "response after local refusals");
+    script.finish();
+}
+
+#[test]
+fn recv_response_rejects_a_fault_with_a_request_level_failure() {
+    // WHY patch bytes: syntheke refuses to encode such a fault. The two
+    // valid faults differ only in the failure tag byte; that byte is set to
+    // the tag of `Cancelled` (declaration index 9), a unit variant.
+    let protocol = Fault {
+        failure: Failure::ProtocolError,
+    }
+    .encode_body()
+    .expect("encode");
+    let auth = Fault {
+        failure: Failure::AuthFailed,
+    }
+    .encode_body()
+    .expect("encode");
+    let differing: Vec<usize> = (0..protocol.len())
+        .filter(|&at| protocol[at] != auth[at])
+        .collect();
+    assert_eq!(differing.len(), 1, "faults differ in one tag byte");
+    let mut body = protocol;
+    body[differing[0]] = 9;
+    let len = u32::try_from(body.len()).expect("len");
+    let (stream, script) = peer::spawn(move |mut peer: Peer, _| {
+        peer.admit(MAX);
+        peer.send_bytes(&header_bytes(8, 0, 0, len));
+        peer.send_bytes(&body);
+    });
+    let mut client = connect(stream).expect("admitted");
+    let result = client.recv_response();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Contract {
+                source: syntheke::Error::FaultNotConnectionLevel {
+                    kind: syntheke::OutcomeKind::Cancelled,
+                    ..
+                },
+                ..
+            })
+        ),
+        "got {result:?}"
+    );
     script.finish();
 }
 
