@@ -26,7 +26,10 @@ use snafu::{OptionExt, ensure};
 use zeroize::Zeroizing;
 
 use super::keys::{SealingKey, SubKey};
-use super::{Entropy, KeyId, Keyspace, NONCE_LEN, OsEntropy, RecordKind, SchemaVersion, TAG_LEN};
+use super::{
+    Entropy, KeyId, Keyspace, NONCE_LEN, OsEntropy, RecordKind, SchemaVersion, TAG_LEN,
+    random_array,
+};
 use crate::Result;
 use crate::error::{
     AadComponentTooLongSnafu, KeyMaterialSnafu, MalformedSnafu, OpenSnafu, PlaintextTooLargeSnafu,
@@ -225,9 +228,7 @@ pub(super) fn cipher(key: &SubKey) -> Result<XChaCha20Poly1305> {
 /// 2^-97. Random nonces need no counter state, so a crash, a restored backup,
 /// or two writers can never replay a nonce the way a persisted counter could.
 pub(super) fn random_nonce(entropy: &mut impl Entropy) -> Result<[u8; NONCE_LEN]> {
-    let mut nonce = [0_u8; NONCE_LEN];
-    entropy.fill(&mut nonce)?;
-    Ok(nonce)
+    random_array(entropy)
 }
 
 pub(super) fn xnonce(nonce: &[u8; NONCE_LEN]) -> &XNonce {

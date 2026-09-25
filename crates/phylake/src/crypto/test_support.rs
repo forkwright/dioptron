@@ -1,5 +1,7 @@
 #![expect(clippy::expect_used, reason = "test helpers must fail loudly")]
 
+use std::mem::MaybeUninit;
+
 use secrecy::SecretBox;
 use snafu::IntoError;
 
@@ -28,8 +30,19 @@ pub(crate) fn tenant_key(id: u32, fill: u8) -> TenantDataKey {
 pub(crate) struct FailingEntropy;
 
 impl Entropy for FailingEntropy {
-    fn fill(&mut self, _dest: &mut [u8]) -> Result<()> {
+    fn fill<'a>(&mut self, _dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
         Err(EntropySnafu.into_error(getrandom::Error::UNSUPPORTED))
+    }
+}
+
+/// An entropy source that reports only the first byte as initialized, to
+/// cover the length check in [`super::random_array`].
+pub(crate) struct ShortEntropy;
+
+impl Entropy for ShortEntropy {
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
+        let first = dest.get_mut(..1).expect("non-empty draw");
+        Ok(first.write_copy_of_slice(&[0x5a]))
     }
 }
 
@@ -38,16 +51,14 @@ impl Entropy for FailingEntropy {
 pub(crate) struct FixedNonce;
 
 impl Entropy for FixedNonce {
-    fn fill(&mut self, dest: &mut [u8]) -> Result<()> {
+    fn fill<'a>(&mut self, dest: &'a mut [MaybeUninit<u8>]) -> Result<&'a mut [u8]> {
         assert_eq!(
             dest.len(),
             super::NONCE_LEN,
             "FixedNonce serves nonces only"
         );
-        for (byte, value) in dest.iter_mut().zip(0xa0_u8..) {
-            *byte = value;
-        }
-        Ok(())
+        let nonce: Vec<u8> = (0xa0_u8..).take(super::NONCE_LEN).collect();
+        Ok(dest.write_copy_of_slice(&nonce))
     }
 }
 

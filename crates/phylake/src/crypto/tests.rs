@@ -3,7 +3,7 @@
 use super::*;
 use crate::Error;
 
-use test_support::unhex;
+use test_support::{FailingEntropy, ShortEntropy, unhex};
 
 // RFC 5869 Appendix A, Test Case 1 (basic SHA-256).
 #[test]
@@ -122,9 +122,29 @@ fn keyspace_names_are_distinct() {
 
 #[test]
 fn os_entropy_fills_buffer() {
-    let mut a = [0_u8; 32];
-    let mut b = [0_u8; 32];
-    OsEntropy.fill(&mut a).expect("fill");
-    OsEntropy.fill(&mut b).expect("fill");
+    let a: [u8; 32] = random_array(&mut OsEntropy).expect("draw");
+    let b: [u8; 32] = random_array(&mut OsEntropy).expect("draw");
     assert_ne!(a, b, "two 256-bit draws differ");
+}
+
+#[test]
+fn random_array_surfaces_entropy_failure() {
+    let err = random_array::<24>(&mut FailingEntropy);
+    assert!(matches!(err, Err(Error::Entropy { .. })), "got {err:?}");
+}
+
+#[test]
+fn random_array_rejects_short_fill() {
+    let err = random_array::<24>(&mut ShortEntropy);
+    assert!(
+        matches!(
+            err,
+            Err(Error::Malformed {
+                what: "entropy draw",
+                len: 1,
+                ..
+            })
+        ),
+        "got {err:?}"
+    );
 }
