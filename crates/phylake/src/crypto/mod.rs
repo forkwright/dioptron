@@ -39,7 +39,8 @@ pub use seal::{
 };
 pub use wrap::{WRAPPED_KEY_LEN, WRAPPED_KEY_VERSION};
 
-pub(crate) use seal::seal_with;
+pub(crate) use keys::{AddressKeys, TenantSealingKeys};
+pub(crate) use seal::{seal_with, sealed_key_id};
 
 /// Length of every symmetric key and subkey in bytes.
 pub const KEY_LEN: usize = 32;

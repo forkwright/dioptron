@@ -58,6 +58,14 @@ impl SubKey {
     pub(crate) fn expose(&self) -> &[u8; KEY_LEN] {
         self.bytes.expose_secret()
     }
+
+    /// A subkey holding a copy of `bytes`, written straight into its
+    /// zeroing heap box.
+    pub(crate) fn copy_from(bytes: &[u8; KEY_LEN]) -> Self {
+        Self {
+            bytes: SecretBox::init_with_mut(|key: &mut [u8; KEY_LEN]| key.copy_from_slice(bytes)),
+        }
+    }
 }
 
 impl ZeroizeOnDrop for SubKey {}
@@ -347,6 +355,91 @@ impl TenantKeys {
     ///
     /// [`crate::Error::KeyMaterial`] if the MAC rejects the key.
     pub fn blob_address(&self, plaintext: &[u8]) -> Result<BlobAddress> {
+        hmac_sha256(self.blob_addr.expose(), &[plaintext]).map(BlobAddress)
+    }
+
+    /// Splits the subkeys into the sealing part, which rotates with the
+    /// data key, and the addressing part, which does not.
+    pub(crate) fn split(self) -> (TenantSealingKeys, AddressKeys) {
+        (
+            TenantSealingKeys {
+                key_id: self.key_id,
+                blob: self.blob,
+                meta: self.meta,
+                audit: self.audit,
+            },
+            AddressKeys {
+                index: self.index,
+                blob_addr: self.blob_addr,
+            },
+        )
+    }
+}
+
+/// The sealing subkeys of one tenant data key: the part of
+/// [`TenantKeys`] that a data-key rotation replaces.
+#[derive(Debug)]
+pub(crate) struct TenantSealingKeys {
+    key_id: KeyId,
+    blob: SealingKey,
+    meta: SealingKey,
+    audit: SealingKey,
+}
+
+impl TenantSealingKeys {
+    /// The data-key id these subkeys come from.
+    pub(crate) const fn key_id(&self) -> KeyId {
+        self.key_id
+    }
+
+    /// Sealing key for the tenant's blobs.
+    pub(crate) const fn blob(&self) -> &SealingKey {
+        &self.blob
+    }
+
+    /// Sealing key for the tenant's metadata records.
+    pub(crate) const fn meta(&self) -> &SealingKey {
+        &self.meta
+    }
+
+    /// Sealing key for the tenant's audit records.
+    pub(crate) const fn audit(&self) -> &SealingKey {
+        &self.audit
+    }
+}
+
+/// A tenant's addressing subkeys: the index subkey that keys its record
+/// keys and the blob-address subkey. They come from the tenant's first
+/// data key and do not rotate with it in Phase 01, because every record
+/// key and blob address is computed under them
+/// (`docs/design/custody-store.md`, "Rekey protocol").
+#[derive(Debug)]
+pub(crate) struct AddressKeys {
+    index: SubKey,
+    blob_addr: SubKey,
+}
+
+impl AddressKeys {
+    /// Rebuilds the addressing subkeys from their unwrapped bytes.
+    pub(crate) fn copy_from(index: &[u8; KEY_LEN], blob_addr: &[u8; KEY_LEN]) -> Self {
+        Self {
+            index: SubKey::copy_from(index),
+            blob_addr: SubKey::copy_from(blob_addr),
+        }
+    }
+
+    /// Subkey for keyed hashes of the tenant's index keys.
+    pub(crate) const fn index(&self) -> &SubKey {
+        &self.index
+    }
+
+    /// The blob-address subkey, for wrapping.
+    pub(crate) const fn blob_addr(&self) -> &SubKey {
+        &self.blob_addr
+    }
+
+    /// As [`TenantKeys::blob_address`].
+    pub(crate) fn blob_address(&self, plaintext: &[u8]) -> Result<BlobAddress> {
         hmac_sha256(self.blob_addr.expose(), &[plaintext]).map(BlobAddress)
     }
 }

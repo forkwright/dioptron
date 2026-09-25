@@ -200,6 +200,15 @@ pub fn open(
     Ok(Zeroizing::new(plain))
 }
 
+/// The key id in a sealed value's header, or `None` when the value is
+/// too short to hold a header. Reads the header only; nothing is
+/// authenticated.
+pub(crate) fn sealed_key_id(sealed: &[u8]) -> Option<KeyId> {
+    let (_version, rest) = sealed.split_first_chunk::<2>()?;
+    let (key_id, _) = rest.split_first_chunk::<4>()?;
+    Some(KeyId::new(u32::from_le_bytes(*key_id)))
+}
+
 fn check_plaintext_len(len: usize) -> Result<()> {
     ensure!(
         len <= MAX_PLAINTEXT_LEN,
