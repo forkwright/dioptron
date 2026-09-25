@@ -9,3 +9,10 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+rkyv.workspace = true
+snafu.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
