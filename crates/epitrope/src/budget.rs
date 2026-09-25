@@ -146,6 +146,39 @@ pub fn plan_reservation(ledgers: &[LedgerState], declared: &Cost) -> Result<Budg
     })
 }
 
+/// The smallest remaining ceiling on each dimension among the caller's own
+/// ledgers (`own` set); `None` where none of them sets a ceiling.
+///
+/// WHY only own ledgers: this is the default for a limit the caller
+/// omits, and the declared amount travels back in plans and replies. An
+/// upstream ledger's remaining budget would leak through it, and the
+/// contract lets only the caller's own ledgers name an amount. Upstream
+/// ledgers still gate the reservation in [`plan_reservation`], where a
+/// shortfall names no dimension.
+#[must_use]
+pub fn own_remaining(ledgers: &[LedgerState]) -> Ceilings {
+    let left = |dimension: Dimension| {
+        ledgers
+            .iter()
+            .filter(|ledger| ledger.own)
+            .filter_map(|ledger| {
+                ledger
+                    .ceilings
+                    .get(dimension)
+                    .map(|ceiling| ceiling.saturating_sub(ledger.used.get(dimension)))
+            })
+            .min()
+    };
+    Ceilings {
+        wall_time_ms: left(Dimension::WallTimeMs),
+        fetches: left(Dimension::Fetches),
+        bytes_transferred: left(Dimension::BytesTransferred),
+        output_bytes: left(Dimension::OutputBytes),
+        tokens: left(Dimension::Tokens),
+        ops_band: left(Dimension::OpsBand),
+    }
+}
+
 /// How a settled reservation moves every ledger it debited.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Settlement {

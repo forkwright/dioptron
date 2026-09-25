@@ -127,6 +127,41 @@ fn check_chain_reports_revocation_before_expiry() -> Result<(), Error> {
 }
 
 #[test]
+fn check_chain_reports_expiry_and_revocation_distinctly() -> Result<(), Error> {
+    let live = MemView::cast();
+    let mut revoked = MemView::cast();
+    revoked.revoke(G_SUB);
+    let mut revoked_root = MemView::cast();
+    revoked_root.revoke(G_ROOT);
+
+    assert_eq!(
+        walk(&live, CHILD_EXPIRES)?,
+        ChainStatus::Invalid {
+            code: DenyCode::GrantExpired,
+            failing_link: G_SUB
+        },
+        "an expired, unrevoked leaf reports expiry"
+    );
+    assert_eq!(
+        walk(&revoked, NOW)?,
+        ChainStatus::Invalid {
+            code: DenyCode::GrantRevoked,
+            failing_link: G_SUB
+        },
+        "a revoked, unexpired leaf reports revocation"
+    );
+    assert_eq!(
+        walk(&revoked_root, CHILD_EXPIRES)?,
+        ChainStatus::Invalid {
+            code: DenyCode::GrantExpired,
+            failing_link: G_SUB
+        },
+        "across links the first unusable link from the leaf decides"
+    );
+    Ok(())
+}
+
+#[test]
 fn check_chain_errors_when_a_parent_is_missing() {
     let mut view = MemView::cast();
     view.grants.remove(&G_ROOT);

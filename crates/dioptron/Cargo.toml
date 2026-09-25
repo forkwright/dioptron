@@ -10,9 +10,25 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# WHY: process-level crash tests. With `DIOPTRON_FAILPOINT=<phase>:<Bn>`
+# set, the daemon aborts at that store commit. Never in a release build.
+failpoints = []
+# WHY: process-level expiry tests. With `DIOPTRON_TEST_CLOCK=<file>` set,
+# the daemon reads wall time from that file. Never in a release build.
+test-clock = []
+
 [dependencies]
 ed25519-dalek.workspace = true
+# WHY epitrope: chain validity at dispatch and settlement, grant issue and
+# revocation decisions, and the audit scope rule.
+epitrope.workspace = true
 getrandom.workspace = true
+# WHY phylake: the custody store every lifecycle boundary commits to.
+phylake.workspace = true
+# WHY sha2: the request digest bound to an idempotency key. Already in the
+# tree under phylake at the same version.
+sha2.workspace = true
 snafu.workspace = true
 syntheke = { version = "0.1.6", path = "../syntheke" }
 # WHY these features: net (Unix listener, peer credentials), rt (spawn,
@@ -27,8 +43,12 @@ tracing.workspace = true
 # break a contract invariant, which the contract encoder refuses to build.
 rkyv.workspace = true
 # WHY rustix (dev only): the shutdown-signal test sends SIGTERM to its own
-# process through a safe call instead of spawning a `kill` binary. The same
-# rustix version is already in the tree under tempfile; `process` adds only
-# the kill and getpid calls.
-rustix = { workspace = true, features = ["process"] }
+# process, and the process tests signal the daemon child and read the
+# effective uid, through safe calls instead of spawning a `kill` binary.
+# The same rustix version is already in the tree under tempfile; `process`
+# adds only the kill, getpid, and geteuid calls.
+rustix = { workspace = true, features = ["std", "process"] }
 tempfile.workspace = true
+# WHY xenos (dev only): the process-level acceptance tests drive the
+# daemon binary only through this independent client.
+xenos = { path = "../xenos" }

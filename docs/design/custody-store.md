@@ -33,9 +33,9 @@ No qualified fleet tier fits the need yet:
 
 Raw fjall is therefore the sanctioned substrate under the migration exception.
 The owning crate names pinax and koina as the target tiers in its roadmap.
-Removal of the direct fjall dependency will be tracked in a STORAGE-TIERS
-exception issue, to be filed when the custody crate lands; its number is not yet
-assigned.
+Removal of the direct fjall dependency is tracked in the STORAGE-TIERS
+exception issue
+[dioptron#91](https://github.com/forkwright/dioptron/issues/91).
 Retirement condition: the exception is retired when pinax ships a multi-row
 transaction with schema migration and encryption, and koina exposes a public
 content-addressed blob API. Until both exist, this store uses fjall directly and
@@ -413,6 +413,13 @@ and reads page by sequence. Which scope an actor's grant allows is decided by
 the lifecycle before the store is asked. A released invocation's audit entry
 carries its release reason beside the reply kind the contract's audit record
 has room for.
+
+Schema version 1 also stores two authority fields in each audit entry. The
+designated grant is recorded on every entry written with it in hand: a
+`Denied` refusal, an audit read, a grant issue, and a capture's terminal
+entry. The applied audit scope is recorded on every `AuditQuery` read, so
+each audit read records the grant and scope it used, as the contract's audit
+partitions require. Both fields are tenant-sealed with the rest of the entry.
 
 ## Retrieval is a projection
 

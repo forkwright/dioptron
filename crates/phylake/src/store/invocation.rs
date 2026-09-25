@@ -5,8 +5,8 @@ use epitrope::{AuthzRequest, Decision, ReservationPlan, authorize, plan, reserve
 use sha2::{Digest as _, Sha256};
 use snafu::{OptionExt as _, ResultExt as _, ensure};
 use syntheke::{
-    ArtifactRef, AuditSeq, Capability, Cost, Dimension, Failure, GrantId, IdempotencyKey,
-    InvocationId, InvocationState, Plan, ReleaseReason, SessionId, SourceRef, TenantId,
+    ArtifactRef, AuditSeq, Capability, Cost, Failure, GrantId, IdempotencyKey, InvocationId,
+    InvocationState, Plan, ReleaseReason, SessionId, SourceRef, TenantId,
 };
 
 use super::audit::AuditEntry;
@@ -29,9 +29,11 @@ pub struct Intent<'a> {
     /// The caller's idempotency key.
     pub idempotency_key: &'a IdempotencyKey,
     /// The caller's digest of the request body. The store binds it to the
-    /// designated grant, capability, session, target, and declared cost
-    /// itself, so a replay under any other of these
-    /// conflicts even when the caller's digest omits them.
+    /// designated grant, capability, session, and target itself, so a
+    /// replay under any other of these conflicts even when the caller's
+    /// digest omits them. The declared cost is not bound: the caller
+    /// derives it from the request and from budget state the call itself
+    /// changes, so the digest must cover the limits the caller asked for.
     pub request_digest: [u8; 32],
 }
 
@@ -309,7 +311,8 @@ impl Store {
             InvocationState::Denied,
             failure.kind(),
         )
-        .in_session(intent.authz.session);
+        .in_session(intent.authz.session)
+        .under_grant(Some(intent.authz.grant));
         let audit_seq = self.append_audit(&mut tx, entry)?;
         self.commit(tx, None)?;
         Ok(Begin::Refused { failure, audit_seq })
@@ -410,9 +413,15 @@ impl Store {
 }
 
 /// The store's binding of `intent` for its idempotency entry: SHA-256
-/// over a domain label, the caller's request digest, and every field the
-/// store authorizes on (designated grant, capability, session, target,
-/// declared cost), each length-prefixed or fixed-width.
+/// over a domain label, the caller's request digest, and the identity
+/// fields the store authorizes on (designated grant, capability, session,
+/// target), each length-prefixed or fixed-width.
+///
+/// WHY not the declared cost: it is derived, not requested. A limit the
+/// caller omits declares the chain's remaining ceiling, which the first
+/// attempt's own settlement lowers, and the wall-time dimension follows
+/// the request deadline, which a retry may change. Binding either would
+/// turn an honest replay into a conflict.
 ///
 /// WHY in the store: the idempotency contract says the same key under a
 /// different grant is a conflict. Binding the grant here makes that true
@@ -437,9 +446,6 @@ fn request_binding(intent: &Intent<'_>) -> [u8; 32] {
             hash.update(length_prefixed(target.as_bytes()));
         }
         None => hash.update([0]),
-    }
-    for &dimension in Dimension::ALL {
-        hash.update(authz.declared.get(dimension).to_le_bytes());
     }
     hash.finalize().into()
 }

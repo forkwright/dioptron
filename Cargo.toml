@@ -146,6 +146,9 @@ fjall = { version = "3.1", default-features = false }
 # WHY epitrope: phylake runs epitrope's transition table, reservation
 # arithmetic, and recovery rules inside its transactions.
 epitrope = { path = "crates/epitrope", version = "0.1.6" }
+# WHY phylake: the custody store; the daemon commits every lifecycle
+# boundary through it.
+phylake = { path = "crates/phylake", version = "0.1.6" }
 
 [profile.dev.package."*"]
 opt-level = 2

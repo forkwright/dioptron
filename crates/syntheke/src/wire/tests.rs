@@ -316,6 +316,50 @@ fn request_check_requires_a_key_on_executed_state_changes() -> TestResult {
     Ok(())
 }
 
+fn query_request(predicate: String) -> Request {
+    let mut request = read_request(None, Mode::Execute);
+    request.body = RequestBody::Query(crate::payload::QueryRequest {
+        session_scope: Some(crate::SessionId::from_bytes([5; 16])),
+        predicate,
+        limit: 10,
+    });
+    request
+}
+
+#[test]
+fn request_check_bounds_the_query_predicate() -> TestResult {
+    let at_bound = query_request("a".repeat(1024));
+    let over = query_request("a".repeat(1025));
+
+    let decoded: Request = decode(&encode(&at_bound)?, DEFAULT_MAX_BODY)?;
+    assert_eq!(decoded, at_bound, "a 1024-byte predicate is accepted");
+    let refused = encode(&over);
+    assert!(
+        matches!(
+            refused,
+            Err(Error::PredicateTooLong {
+                len: 1025,
+                max: 1024,
+                ..
+            })
+        ),
+        "a 1025-byte predicate is refused: {refused:?}"
+    );
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&over)?;
+    let decoded = decode::<Request>(&bytes, DEFAULT_MAX_BODY);
+    assert!(
+        matches!(decoded, Err(Error::PredicateTooLong { .. })),
+        "decode refuses it too: {decoded:?}"
+    );
+    let mut keyed = query_request("a".repeat(1025));
+    keyed.idempotency_key = Some(IdempotencyKey::new(vec![1; 16])?);
+    assert!(
+        matches!(encode(&keyed), Err(Error::PredicateTooLong { .. })),
+        "a key does not skip the predicate bound"
+    );
+    Ok(())
+}
+
 #[test]
 fn request_carries_its_designated_grant_in_both_modes() -> TestResult {
     for mode in [Mode::Execute, Mode::DryRun] {

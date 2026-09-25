@@ -37,8 +37,8 @@ pub enum Step {
 /// | From | Legal steps |
 /// |---|---|
 /// | `Planned` | `Deny`, `PersistIntent` |
-/// | B1 `IntentPersisted` | `Dispatch`; `Release` for `Abandoned`, `Revoked`, `Cancelled`, `DeadlineExceeded` |
-/// | B2 `Dispatched` | `CompleteTransfer`, `Settle`, `MarkUnknownEffect`; `Release` for `Revoked`, `Cancelled`, `DeadlineExceeded`, `ProducerUnavailable` (each only when the producer reports it had not started) |
+/// | B1 `IntentPersisted` | `Dispatch`; `Release` for `Abandoned`, `Revoked`, `Expired`, `Cancelled`, `DeadlineExceeded` |
+/// | B2 `Dispatched` | `CompleteTransfer`, `Settle`, `MarkUnknownEffect`; `Release` for `Revoked`, `Expired`, `Cancelled`, `DeadlineExceeded`, `ProducerUnavailable` (each only when the producer reports it had not started) |
 /// | B3 `TransferComplete` | `Publish` |
 /// | B4 `Published` | `Settle` |
 /// | terminal | none |
@@ -62,11 +62,19 @@ pub fn next_state(from: InvocationState, step: Step) -> Result<InvocationState, 
         (S::IntentPersisted, Step::Dispatch) => Some(S::Dispatched),
         (
             S::IntentPersisted,
-            Step::Release(R::Abandoned | R::Revoked | R::Cancelled | R::DeadlineExceeded),
+            Step::Release(
+                R::Abandoned | R::Revoked | R::Expired | R::Cancelled | R::DeadlineExceeded,
+            ),
         )
         | (
             S::Dispatched,
-            Step::Release(R::Revoked | R::Cancelled | R::DeadlineExceeded | R::ProducerUnavailable),
+            Step::Release(
+                R::Revoked
+                | R::Expired
+                | R::Cancelled
+                | R::DeadlineExceeded
+                | R::ProducerUnavailable,
+            ),
         ) => Some(S::Released),
         (S::Dispatched, Step::CompleteTransfer) => Some(S::TransferComplete),
         (S::Dispatched | S::Published, Step::Settle) => Some(S::Settled),

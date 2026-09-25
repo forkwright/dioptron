@@ -2,13 +2,19 @@
 //!
 //! All payload types are plain data: every field combination is
 //! representable on the wire, and the daemon applies authorization and scope
-//! rules after decoding. The one constrained field, [`IdempotencyKey`], is
-//! re-checked by [`crate::Message::check`] on the enclosing request.
+//! rules after decoding. The constrained fields, [`IdempotencyKey`] and the
+//! `Query` predicate length, are re-checked by [`crate::Message::check`] on
+//! the enclosing request.
 
 use crate::budget::{Ceilings, Cost};
 use crate::ids::{ArtifactRef, AuditSeq, GrantId, InvocationId, SessionId, TenantId, Timestamp};
 use crate::outcome::{Failure, InvocationState, OutcomeKind};
 use crate::vocab::{AuditScope, Capability, SessionScope};
+
+/// The longest `Query` predicate, in bytes (contract § Query and read
+/// results). A request whose predicate is longer fails
+/// [`crate::Message::check`] and is a `ProtocolError`.
+pub const MAX_QUERY_PREDICATE_LEN: usize = 1024;
 
 /// Derive list shared by every payload type.
 macro_rules! payload {
@@ -95,8 +101,10 @@ payload! {
         /// The session to search. Version 1 requires one: `None` is refused
         /// with `Denied{SessionRequired}`.
         pub session_scope: Option<SessionId>,
-        /// The predicate. Its language is not fixed by contract version 1
-        /// and is carried as text.
+        /// The predicate. Version 1 matches it as a case-sensitive
+        /// substring of each artifact's text view; an empty predicate
+        /// matches every artifact. At most [`MAX_QUERY_PREDICATE_LEN`]
+        /// bytes.
         pub predicate: String,
         /// Maximum number of results.
         pub limit: u32,

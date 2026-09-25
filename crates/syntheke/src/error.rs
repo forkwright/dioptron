@@ -200,6 +200,19 @@ pub enum Error {
         location: snafu::Location,
     },
 
+    /// A `Query` predicate is longer than
+    /// [`crate::MAX_QUERY_PREDICATE_LEN`].
+    #[snafu(display("a query predicate is {len} bytes, above the {max}-byte bound"))]
+    PredicateTooLong {
+        /// Length of the rejected predicate in bytes.
+        len: usize,
+        /// The bound.
+        max: usize,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
     /// A fault frame carried a failure that is not connection-level.
     #[snafu(display("a fault frame carries only ProtocolError or AuthFailed, got {kind}"))]
     FaultNotConnectionLevel {

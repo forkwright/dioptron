@@ -245,14 +245,18 @@ name = "dioptron"
 version = "0.1.6"
 dependencies = [
  "ed25519-dalek",
+ "epitrope",
  "getrandom",
+ "phylake",
  "rkyv",
  "rustix",
+ "sha2",
  "snafu",
  "syntheke",
  "tempfile",
  "tokio",
  "tracing",
+ "xenos",
 ]
 
 [[package]]

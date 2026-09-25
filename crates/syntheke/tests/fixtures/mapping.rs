@@ -3,9 +3,10 @@
 use syntheke::{
     ArtifactRef, AuditPage, AuditQueryRequest, AuditScope, AuditSeq, Capability, CaptureLimits,
     CaptureOutcome, CaptureRequest, Ceilings, Cost, DenyCode, Dimension, ExtractionClass, Failure,
-    GrantId, GrantIssueRequest, GrantIssued, GrantRevokeRequest, GrantRevoked, NarrowingAxis,
-    OutcomeKind, Plan, QueryPage, QueryRequest, ReadChunk, ReadRequest, RequestBody, ResponseBody,
-    SessionForkRequest, SessionOpened, SessionScope, SourceRef, Timestamp, TransferClass,
+    GrantId, GrantIssueRequest, GrantIssued, GrantRevokeRequest, GrantRevoked, IngestRequest,
+    NarrowingAxis, OutcomeKind, Plan, QueryPage, QueryRequest, ReadChunk, ReadRequest, RequestBody,
+    ResponseBody, SessionForkRequest, SessionOpened, SessionScope, SourceRef, Timestamp,
+    TransferClass,
 };
 use toml::Table;
 
@@ -99,6 +100,9 @@ pub(crate) fn request_body(
             session_scope: id(req, "session_scope", name)?,
             predicate: need_text(req, "predicate", name)?.to_owned(),
             limit: 100,
+        }),
+        Capability::Ingest => RequestBody::Ingest(IngestRequest {
+            artifact_ref: need_id(req, "artifact_ref", name)?,
         }),
         Capability::GrantIssue => grant_issue_body(req, name)?,
         Capability::GrantRevoke => RequestBody::GrantRevoke(GrantRevokeRequest {

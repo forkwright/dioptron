@@ -21,9 +21,16 @@ fn every_step() -> Vec<Step> {
 
 /// The contract table, written out independently of `next_state`.
 fn expected(from: &str, step: Step) -> Option<&'static str> {
-    let released_from_b1 = ["Abandoned", "Revoked", "Cancelled", "DeadlineExceeded"];
+    let released_from_b1 = [
+        "Abandoned",
+        "Revoked",
+        "Expired",
+        "Cancelled",
+        "DeadlineExceeded",
+    ];
     let released_from_b2 = [
         "Revoked",
+        "Expired",
         "Cancelled",
         "DeadlineExceeded",
         "ProducerUnavailable",
@@ -74,7 +81,7 @@ fn next_state_matches_the_full_transition_matrix() {
             }
         }
     }
-    assert_eq!(legal, 16, "the table has 16 legal (state, step) pairs");
+    assert_eq!(legal, 18, "the table has 18 legal (state, step) pairs");
 }
 
 #[test]

@@ -27,6 +27,7 @@
 
 mod audit;
 mod backup;
+mod claim;
 mod codec;
 mod compact;
 mod directory;
@@ -80,6 +81,7 @@ use crate::keyfile::RootKey;
 
 pub use self::audit::{AuditEvent, AuditQuery};
 pub use self::backup::{RestoredStore, verify_restored};
+pub use self::claim::{AuditNote, AuditOutcome, Claimed, IdemClaim};
 pub use self::directory::{
     GrantIssue, IssueOutcome, NewSession, RevokeGrant, RootGrant, TenantRegistration,
 };

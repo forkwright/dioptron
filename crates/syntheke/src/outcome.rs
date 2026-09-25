@@ -31,6 +31,11 @@ named_enum! {
         BudgetUnavailable => "BudgetUnavailable",
         /// The capability requires a session and the call names none.
         SessionRequired => "SessionRequired",
+        /// The capability is defined by the contract but this daemon does
+        /// not serve it yet (version 1: `Ingest`, until the knowledge
+        /// pipeline lands). Decided after the grant, chain, and capability
+        /// checks, so it discloses nothing about the named resource.
+        NotSupported => "NotSupported",
     }
 }
 
@@ -293,6 +298,8 @@ named_enum! {
         Cancelled => "Cancelled",
         /// The deadline elapsed before any effect.
         DeadlineExceeded => "DeadlineExceeded",
+        /// A link of the authorizing chain expired before any effect.
+        Expired => "Expired",
     }
 }
 

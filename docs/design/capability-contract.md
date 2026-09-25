@@ -72,7 +72,7 @@ version 1 defines:
 | `SessionCreate` | Open a new session owned by the acting tenant. |
 | `SessionFork` | Branch an existing readable session into a new lineage with provenance (R4.10). |
 | `Capture` | Acquire a target through the producer seam and store it as an immutable artifact with provenance (R4.4). |
-| `Ingest` | Submit a stored artifact into the knowledge pipeline (D7). |
+| `Ingest` | Submit a stored artifact into the knowledge pipeline (D7). Defined in version 1 and refused as `Denied{NotSupported}` until the D7 pipeline lands (Phase 03); see unserved capabilities below. |
 | `Read` | Read a stored artifact or record the tenant is authorized to see. |
 | `Query` | Query indexed or knowledge state within the tenant's read scope. |
 | `GrantIssue` | Issue a child grant that attenuates one the tenant holds. |
@@ -115,12 +115,14 @@ grant that does not exist and a grant held by another tenant return the
 identical `NotFoundOrDenied` response, so a request cannot probe for another
 tenant's grant. A designated grant the tenant holds that cannot authorize the
 call returns the `Denied` code the check reaches: `CapabilityNotGranted`,
-`ScopeViolation`, `GrantNotYetValid`, `GrantExpired`, `GrantRevoked`,
-`SessionRequired`, or `BudgetUnavailable`, or it returns `BudgetExceeded`.
+`NotSupported`, `ScopeViolation`, `GrantNotYetValid`, `GrantExpired`,
+`GrantRevoked`, `SessionRequired`, or `BudgetUnavailable`, or it returns
+`BudgetExceeded`.
 
 The checks run in this order, and the first refusal wins: the designated
-grant, the validity of its whole chain, the capability, the session, the
-target, and the budget. Every link of the chain must confer the capability. A
+grant, the validity of its whole chain, the capability, whether the daemon
+serves the capability, the session, the target, and the budget. Every link
+of the chain must confer the capability. A
 capability that requires a session (see session requirement below) and names
 none returns `Denied{SessionRequired}`. A
 request that names a session is checked against the session scope of every
@@ -129,6 +131,17 @@ not own, returns `NotFoundOrDenied`; the caller's own session outside scope
 returns `Denied{ScopeViolation}`. A `Capture` target must fall inside the
 target scope of every link; a missing target, or one outside the accepted
 origin syntax, returns `Denied{ScopeViolation}`.
+
+### Unserved capabilities
+
+A capability the contract defines but this daemon does not serve yet is
+refused with `Denied{NotSupported}`. Version 1 has one: `Ingest`, refused
+until the knowledge pipeline (D7) lands in Phase 03. The refusal comes after
+the designated-grant, chain-validity, and capability checks and before the
+session check, so it reads no session or artifact: a missing, a foreign, and
+an own artifact receive byte-identical replies. It comes before any
+idempotency binding or reservation; its `Denied` audit entry is its only
+write.
 
 Authorization decides identically in `Execute` and `DryRun`; the mode decides
 only what the store persists. A dry-run reports the same refusal in its plan.
@@ -144,7 +157,8 @@ acts in comes from its body, as the table names.
 |---|---|---|
 | `Capture` | required | `session` |
 | `SessionFork` | required | `parent_session` |
-| `Ingest`, `Read` | required | the session of the named artifact |
+| `Read` | required | the session of the named artifact |
+| `Ingest` | required once served; version 1 refuses it before the session check | the session of the named artifact |
 | `Query` | required | `session_scope` |
 | `AuditQuery` | optional; narrows the audit scope | `session` |
 | `SessionCreate`, `GrantIssue`, `GrantRevoke` | forbidden | none |
@@ -204,8 +218,14 @@ walk runs from the designated grant toward the root; the first unusable link
 decides the code, and within one link revocation is reported before expiry and
 expiry before not-yet-valid. Validity is
 re-checked at dispatch and again at settlement, using an injected clock so the
-check is deterministic in tests. A grant that expires mid-invocation is handled
-by the revocation and lifecycle rules below, not by a separate path.
+check is deterministic in tests. Expiry is distinct from revocation at every
+point. At authorization an expired chain is `Denied{GrantExpired}`. A running
+call re-checks its chain while the producer runs, and a link that expires
+then stops the call exactly as a revocation does (see revocation of queued
+and running calls), but the call is recorded as expired: a call stopped
+before any effect is `Released(Expired)`, and its reply and replay are
+`Denied{GrantExpired}`. When one link is both revoked and expired, the call
+reports revocation, following the walk order above.
 
 ### Revocation epochs
 
@@ -298,21 +318,24 @@ settlement or release runs exactly once even across a retry (D17.16).
 
 `Settled{outcome}` carries the reply kind the caller observed (`Success`,
 `TransferFailed`, `ExtractionFailed`, and so on). Version 1 `Released` reasons,
-non-exhaustive: `Abandoned` (restart recovery at B1), `Revoked` (revocation
-before any effect), `Cancelled` and `DeadlineExceeded` (the producer reports it
-had not started), and `ProducerUnavailable` (the producer reports it was never
-contacted).
+non-exhaustive: `Abandoned` (restart recovery at B1, or a daemon failure
+before dispatch), `Revoked` (revocation before any effect), `Expired` (a
+chain link expired before any effect), `Cancelled` and `DeadlineExceeded` (the
+producer reports it had not started), and `ProducerUnavailable` (the producer
+reports it was never contacted). A replay replies `Revoked` as
+`Denied{GrantRevoked}`, `Expired` as `Denied{GrantExpired}`, and `Abandoned`
+as `Cancelled`.
 
 The legal transitions are exactly these; the store refuses every other step,
 including any step out of a terminal state:
 
 - `Planned` to `Denied` or B1.
-- B1 to B2, or to `Released` for `Abandoned`, `Revoked`, `Cancelled`, or
-  `DeadlineExceeded`.
+- B1 to B2, or to `Released` for `Abandoned`, `Revoked`, `Expired`,
+  `Cancelled`, or `DeadlineExceeded`.
 - B2 to B3; to `Settled` when the producer reports a failure after the effect
-  started; to `UnknownEffect`; or to `Released` for `Revoked`, `Cancelled`,
-  `DeadlineExceeded`, or `ProducerUnavailable`, each only when the producer
-  reports it had not started.
+  started; to `UnknownEffect`; or to `Released` for `Revoked`, `Expired`,
+  `Cancelled`, `DeadlineExceeded`, or `ProducerUnavailable`, each only when
+  the producer reports it had not started.
 - B3 to B4, and B4 to `Settled`. Nothing releases at B3 or later, because the
   effect is durable there.
 
@@ -334,13 +357,25 @@ Every state-changing request carries a caller-supplied idempotency key of 16 to
 64 bytes. The store holds an idempotency index keyed by a keyed hash over the
 tenant, the capability, and the key, mapping to the invocation id and a binding
 of the request. The binding covers the caller's request digest and, bound by
-the store itself, the designated grant, session, target, and declared cost, so
-the same key sent under a different grant is an `IdempotencyConflict` whatever
-the caller's digest covers.
+the store itself, the designated grant, session, and target, so the same key
+sent under a different grant is an `IdempotencyConflict` whatever the
+caller's digest covers. The daemon's digest covers the designated grant, the
+key, the mode, and the capability body, including the limits as the caller
+set or omitted them; it leaves out the request id and the deadline. The
+declared cost is not bound: it derives from the request, the deadline, and
+budget state the first attempt's own settlement changes (see daemon limits),
+so binding it would turn an honest retry into a conflict.
 
-- Same key, same request binding: the current or terminal outcome of the
-  existing invocation is returned. If it is still running, the caller observes
-  `InProgress`. The call is never dispatched twice.
+- Same key, same request binding: the designated grant's chain is
+  re-authorized first (the grant, the validity of every link, including
+  revocation and expiry, and the capability on every link). If the chain no
+  longer authorizes the call, the replay is refused with the current
+  `Denied{GrantRevoked}` or `Denied{GrantExpired}` (or the code the check
+  reaches) and never returns stored content such as a text view or artifact
+  data; the original effect stands and stays recorded. Otherwise the current
+  or terminal outcome of the existing invocation is returned. If it is still
+  running, the caller observes `InProgress`. The call is never dispatched
+  twice.
 - Same key, different request binding: `IdempotencyConflict`. The key is already
   bound to a different request and the contract refuses to reuse it.
 - A replay of an invocation that ended in `UnknownEffect` returns
@@ -349,6 +384,23 @@ the caller's digest covers.
 Idempotency is asserted at B1: the index entry is written in the same
 transaction as the reservation and the intent, so two concurrent calls with the
 same key cannot both reserve.
+
+Session and grant calls (`SessionCreate`, `SessionFork`, `GrantIssue`,
+`GrantRevoke`) have no B1. They claim their key in this order:
+
+1. Look the key up. A key bound to another request is `IdempotencyConflict`.
+   A key bound to this request is a replay: re-authorize as above, then
+   return the stored session, grant, or revocation record.
+2. Authorize under the designated grant. A refusal writes its `Denied` audit
+   entry and binds nothing, so the same key may be retried.
+3. Bind the key to a fresh invocation id in its own transaction. That id is
+   also the id of the session or grant the call creates.
+4. Write the session, grant, or revocation record with its audit entry. The
+   write is idempotent by that id, so a crash between steps 3 and 4 is
+   repaired by the replay, which finds the binding and completes the write.
+
+When two calls with the same key race, step 3 admits one binding; the other
+call receives the first call's id, or a conflict when its binding differs.
 
 ## Revocation of queued and running calls
 
@@ -367,6 +419,23 @@ of R2.7 while respecting the drain-only exception:
 - A verb that the rules mark drain-only (R2.7) is not cancelled; it runs to
   completion and settles normally, and reading its artifact still requires a
   live grant.
+
+A chain link that expires while a call runs follows the same rules, recorded
+as expiry instead of revocation (see expiry and validity). The
+`revoked_after_effect` marker is set when the chain stopped being live, by
+revocation or expiry, after the effect started.
+
+### Early stops
+
+A cancel, deadline, revocation, or expiry that stops a dispatched call
+settles it by what the producer reports:
+
+| Producer reports | Terminal | Reply |
+|---|---|---|
+| stopped before any effect | `Released` for the stop reason: `Revoked` or `Expired` when the chain is no longer usable (revocation first), otherwise `DeadlineExceeded` when the deadline passed, otherwise `Cancelled` | `Denied{GrantRevoked}`, `Denied{GrantExpired}`, `DeadlineExceeded`, or `Cancelled` |
+| stopped after the effect started, with no output | `Settled` at the actual cost; nothing is published | `DeadlineExceeded` when the deadline passed, otherwise `Cancelled`; a revocation or expiry reads as a cancellation, because the effect started under a live chain |
+| delivered its output anyway | published and `Settled`, with `revoked_after_effect` when the chain is no longer usable | the capture |
+| nothing within one second past the deadline | `UnknownEffect`, charging the whole reservation | `UnknownEffect` |
 
 Revocation never fabricates a clean state. A call whose effect has left the
 runtime is recorded as having left, even when the authorizing grant is gone.
@@ -408,8 +477,10 @@ Version 1 `Denied` codes, non-exhaustive: `CapabilityNotGranted`,
 `GrantNotYetValid`, `GrantExpired`, `GrantRevoked` (the grant or any link in its
 chain), `NarrowingViolation` (a child grant that does not attenuate its parent;
 the reply names the first failing axis), `BudgetUnavailable` (a ledger the
-caller does not own cannot cover the declared cost; no dimension is named), and
-`SessionRequired` (the capability requires a session and the call names none). A
+caller does not own cannot cover the declared cost; no dimension is named),
+`SessionRequired` (the capability requires a session and the call names none),
+and `NotSupported` (the contract defines the capability and this daemon does
+not serve it yet). A
 `Denied` reply whose axis does not match its code fails validation. Version 1
 narrowing axes, non-exhaustive: `capabilities`, `audit_scope`,
 `session_scope`, `target_scope`, `ceilings`, `expiry`, `depth`, and
@@ -454,7 +525,13 @@ authority, and where it sits in the knowledge lineage.
 
 `Read` returns stored bytes in bounded chunks by offset and length, so a large
 artifact does not force a single oversized frame. `Query` returns records within
-the caller's read scope only. Both are shaped by scope before capability: a
+the caller's read scope only.
+
+The version 1 query predicate is a case-sensitive substring match over each
+artifact's text view: an artifact matches when its text view contains the
+predicate's bytes, and an empty predicate matches every artifact in the
+session. A predicate is at most 1024 bytes; a longer one fails request
+validation and is a `ProtocolError`, like any other malformed frame. Both are shaped by scope before capability: a
 result set never includes a record outside the caller's session or audit scope,
 and a query that would match a foreign record returns as if that record did not
 exist, consistent with the non-leak rule. Read of an artifact produced under a
@@ -470,7 +547,9 @@ separate audit path. The default grants encode D17.7: the operator's default
 audit scope is `All`, and an agent's or sub-agent's is `OwnAndOwnedSessions`
 (its own records plus records from sessions it owns). The rule evaluator's view
 type carries no audit access, so a rule cannot read audit during evaluation.
-Every audit read is itself audited, recording the grant and scope used. Any
+Every audit read is itself audited, recording the grant and scope used: the
+store's audit entry carries the designated grant and the applied audit scope
+(`docs/design/custody-store.md`, "Audit reads"). Any
 system-only audit authority would be an explicit non-delegable capability, never
 a tenant-class exception; version 1 defines none.
 
@@ -504,7 +583,7 @@ Version 1 defines eight frame kinds; any other kind byte is rejected.
 | 4 | `Admitted` | server to client | No fields. The handshake succeeded; requests may follow. |
 | 5 | `Request` | client to server | One capability request (see request fields). |
 | 6 | `Cancel` | client to server | The request id to cancel. |
-| 7 | `Response` | server to client | The request id, the invocation id when the call persisted one, and the reply. |
+| 7 | `Response` | server to client | The request id, the invocation id when the call persisted an invocation (none on any refusal, even one whose `Denied` audit entry was written, so a refusal's bytes depend only on the failure), and the reply. |
 | 8 | `Fault` | server to client | `ProtocolError` or `AuthFailed` only, sent once before the server closes. |
 
 A failure that answers one request travels in a `Response`; `Fault` carries
@@ -521,6 +600,30 @@ times out. A handshake must complete within 5 seconds. A global connection
 semaphore bounds concurrent connections, and each connection bounds its in-flight
 requests. A frame that violates any bound yields a single `ProtocolError` frame
 where possible, and then the connection closes.
+
+### Daemon limits
+
+A `Capture` declares a transfer limit and an output limit, and both become
+its reserved maximum on those dimensions and the bounds the producer is
+handed. A limit the caller sets is kept, lowered to the daemon cap on that
+dimension. A limit the caller omits is the smallest remaining ceiling on that
+dimension among the ledgers the caller owns (each ledger's ceiling less what it
+has spent): its tenant ledger, the grants in the designated chain it holds, and
+the session when it owns it. That value is lowered to the daemon cap; when no
+owned ledger sets a ceiling there, the limit is the daemon cap. Ledgers the
+caller does not own, such as an ancestor grant's, never set a default, because
+the declared limit appears in plans and replies and would disclose their
+remaining budget. They only gate the reservation: one that cannot cover the
+declared amount refuses the call as `Denied{BudgetUnavailable}`, which names no
+dimension. The daemon caps are:
+
+- transfer: the largest envelope the custody store seals, 64 MiB;
+- output: the connection's negotiated maximum frame body less 1 KiB of reply
+  overhead, because the text view travels whole in one reply frame.
+
+The remaining ceiling is read from a snapshot before B1, and B1 re-reads every
+ledger in its own transaction, so a limit that no longer fits is refused as a
+budget shortfall, never over-reserved.
 
 ### Handshake and version negotiation
 
@@ -720,6 +823,6 @@ grant, a revoke, or a dry-run). A negative fixture asserts a refusal with a
 specific outcome kind (an incompatible version, an oversized frame, a
 cross-tenant read, a foreign designated grant, an expired grant, a narrowing
 violation, a revoked parent, a missing required session, an idempotency
-conflict, an unavailable producer, a failed transfer, a failed extraction, or a
-forged identity). A test that finds a declared fixture missing fails loudly
+conflict, an unavailable producer, a failed transfer, a failed extraction, an
+unserved capability, or a forged identity). A test that finds a declared fixture missing fails loudly
 rather than skipping.

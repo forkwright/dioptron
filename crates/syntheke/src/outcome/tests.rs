@@ -155,7 +155,25 @@ fn deny_codes_match_the_contract_list() {
             "NarrowingViolation",
             "BudgetUnavailable",
             "SessionRequired",
+            "NotSupported",
         ],
         "the version 1 deny codes, in contract order"
+    );
+}
+
+#[test]
+fn release_reasons_match_the_contract_list() {
+    let names: Vec<&str> = ReleaseReason::ALL.iter().map(|r| r.name()).collect();
+    assert_eq!(
+        names,
+        [
+            "Abandoned",
+            "Revoked",
+            "ProducerUnavailable",
+            "Cancelled",
+            "DeadlineExceeded",
+            "Expired",
+        ],
+        "the version 1 release reasons, expiry distinct from revocation"
     );
 }

@@ -11,5 +11,6 @@ mod lifecycle;
 mod open;
 mod rekey;
 mod root;
+mod serving;
 mod shred;
 mod terminal;

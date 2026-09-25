@@ -411,7 +411,8 @@ impl Store {
             Capability::GrantIssue,
             state,
             kind,
-        );
+        )
+        .under_grant(Some(issue.context.designated));
         self.append_audit(&mut tx, entry)?;
         self.commit(tx, None)?;
         Ok(outcome)

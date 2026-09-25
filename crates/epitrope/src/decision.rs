@@ -2,11 +2,13 @@
 
 use snafu::ResultExt as _;
 use syntheke::{
-    Capability, Cost, DenyCode, Dimension, Failure, GrantId, InvocationState, Mode, Plan,
+    Capability, Ceilings, Cost, DenyCode, Dimension, Failure, GrantId, InvocationState, Mode, Plan,
     SessionId, SessionScope, TenantId,
 };
 
-use crate::budget::{BudgetCheck, BudgetRefusal, LedgerState, ReservationPlan, plan_reservation};
+use crate::budget::{
+    BudgetCheck, BudgetRefusal, LedgerState, ReservationPlan, own_remaining, plan_reservation,
+};
 use crate::chain::{ChainStatus, check_chain};
 use crate::clock::Clock;
 use crate::error::{Error, SessionNotApplicableSnafu, ViewSnafu};
@@ -108,15 +110,17 @@ impl Decision {
 /// 2. Every link from the grant to its root is usable now
 ///    ([`check_chain`]).
 /// 3. Every link confers the capability (`CapabilityNotGranted`).
-/// 4. A capability that requires a session names one (`SessionRequired`).
+/// 4. The capability is one this build serves; `Ingest` is refused as
+///    `NotSupported` until the knowledge pipeline (D7) lands.
+/// 5. A capability that requires a session names one (`SessionRequired`).
 ///    When the call names a session: it exists and every link's session
 ///    scope admits it (`Own` admits sessions whose owner is in the link
 ///    holder's lineage). A missing session, or one outside scope that the
 ///    caller does not own, is `NotFoundOrDenied`; the caller's own session
 ///    outside scope is `ScopeViolation`.
-/// 5. A `Capture` names a target, and every link's target scope admits its
+/// 6. A `Capture` names a target, and every link's target scope admits its
 ///    origin (`ScopeViolation`, also for a target that does not parse).
-/// 6. Every ledger (each chain grant, the session, the tenant) covers the
+/// 7. Every ledger (each chain grant, the session, the tenant) covers the
 ///    declared cost ([`plan_reservation`]): exhaustion on one of the
 ///    caller's own ledgers is [`Decision::BudgetExceeded`], on any other
 ///    ledger `BudgetUnavailable`, which names no dimension.
@@ -149,6 +153,14 @@ pub fn authorize(
         Ok(chain) => chain,
         Err(refusal) => return Ok(refusal),
     };
+    // WHY here: after the grant, chain, and capability checks and before
+    // any session or artifact is read, so the refusal is the same for a
+    // missing, a foreign, and an own resource.
+    if !is_served(request.capability) {
+        return Ok(Decision::Denied {
+            code: DenyCode::NotSupported,
+        });
+    }
     let session_owner = match request.session {
         Some(session) => match check_session(view, request.tenant, &chain, session)? {
             Ok(owner) => Some((session, owner)),
@@ -175,10 +187,22 @@ pub fn authorize(
     )
 }
 
+/// Whether this build serves `capability`. Contract version 1 defines
+/// `Ingest`, and it is refused until the knowledge pipeline (D7) lands.
+#[must_use]
+pub const fn is_served(capability: Capability) -> bool {
+    !matches!(capability, Capability::Ingest)
+}
+
 /// Checks 1 to 3 of [`authorize`]: the designated grant, its chain's
 /// validity, and the capability on every link. Returns the chain, leaf
 /// first, or the refusal.
-pub(crate) fn designated_chain(
+///
+/// # Errors
+///
+/// [`Error::View`], [`Error::ChainBroken`], or [`Error::ChainMalformed`];
+/// the caller fails closed.
+pub fn designated_chain(
     view: &dyn Snapshot,
     tenant: TenantId,
     grant: GrantId,
@@ -204,7 +228,7 @@ pub(crate) fn designated_chain(
     Ok(Ok(chain))
 }
 
-/// Check 6 of [`authorize`]: plans the reservation of `declared` against
+/// Check 7 of [`authorize`]: plans the reservation of `declared` against
 /// every ledger the call debits.
 pub(crate) fn reserve_for(
     view: &dyn Snapshot,
@@ -226,6 +250,32 @@ pub(crate) fn reserve_for(
             code: DenyCode::BudgetUnavailable,
         },
     })
+}
+
+/// The remaining ceiling on each dimension across the ledgers `tenant`
+/// owns among those a call under `chain` in `session` debits: the grants
+/// in `chain` it holds, `session` when it owns it, and its tenant ledger
+/// ([`own_remaining`]). A session that is missing or owned by another
+/// tenant contributes nothing.
+///
+/// # Errors
+///
+/// [`Error::View`] when a ledger or the session owner cannot be read.
+pub fn caller_remaining(
+    view: &dyn Snapshot,
+    tenant: TenantId,
+    chain: &[Grant],
+    session: Option<SessionId>,
+) -> Result<Ceilings, Error> {
+    let owned = match session {
+        Some(session) => view
+            .session_owner(session)
+            .context(ViewSnafu)?
+            .filter(|owner| *owner == tenant)
+            .map(|owner| (session, owner)),
+        None => None,
+    };
+    Ok(own_remaining(&ledger_states(view, tenant, chain, owned)?))
 }
 
 /// Checks `session` against every link; returns its owner when admitted.

@@ -354,6 +354,90 @@ fn authorize_reports_budget_on_own_ledgers_only() -> Result<(), Error> {
     Ok(())
 }
 
+fn remaining_for(
+    view: &MemView,
+    tenant: TenantId,
+    grant: GrantId,
+    session: SessionId,
+) -> Result<Ceilings, Error> {
+    let chain = match designated_chain(view, tenant, grant, Capability::Capture, &FixedClock(NOW))?
+    {
+        Ok(chain) => chain,
+        Err(refusal) => panic!("the fixture chain is usable, got {refusal:?}"),
+    };
+    caller_remaining(view, tenant, &chain, Some(session))
+}
+
+#[test]
+fn caller_remaining_hides_ancestor_and_foreign_session_budgets() -> Result<(), Error> {
+    let mut view = cast();
+    view.set_used(
+        LedgerId::Grant(G_AGENT),
+        Cost {
+            fetches: 9,
+            ..Cost::default()
+        },
+    );
+    view.session_ceilings.insert(
+        S_AGENT,
+        Ceilings {
+            fetches: Some(0),
+            ..Ceilings::default()
+        },
+    );
+    view.tenant_ceilings.insert(
+        SUB,
+        Ceilings {
+            output_bytes: Some(10),
+            ..Ceilings::default()
+        },
+    );
+
+    let remaining = remaining_for(&view, SUB, G_SUB, S_AGENT)?;
+
+    assert_eq!(
+        remaining,
+        Ceilings {
+            fetches: Some(2),
+            bytes_transferred: Some(65_536),
+            output_bytes: Some(10),
+            ..Ceilings::default()
+        },
+        "the leaf's own ceilings and the tenant's; the parent's 1 fetch left \
+         and the agent-owned session's 0 stay hidden"
+    );
+    Ok(())
+}
+
+#[test]
+fn caller_remaining_counts_an_owned_session() -> Result<(), Error> {
+    let mut view = cast();
+    view.session_ceilings.insert(
+        S_AGENT,
+        Ceilings {
+            fetches: Some(3),
+            ..Ceilings::default()
+        },
+    );
+    view.set_used(
+        LedgerId::Grant(G_ROOT),
+        Cost {
+            bytes_transferred: 1_048_000,
+            ..Cost::default()
+        },
+    );
+
+    let remaining = remaining_for(&view, AGENT, G_AGENT, S_AGENT)?;
+
+    assert_eq!(
+        (remaining.fetches, remaining.bytes_transferred),
+        (Some(3), Some(524_288)),
+        "the owned session caps fetches; the operator's root grant, with 576 \
+         bytes left, does not set the transfer default"
+    );
+    Ok(())
+}
+
 #[test]
 fn authorize_errors_when_an_uncapped_ledger_would_overflow() {
     let mut view = cast();
@@ -539,6 +623,18 @@ fn authorize_enforces_the_session_requirement_of_every_capability() -> Result<()
         let without = decide(&view, &operator_call(capability, None));
         let with = decide(&view, &operator_call(capability, Some(S_OPERATOR)));
         match session_requirement(capability) {
+            SessionRequirement::Required if !is_served(capability) => {
+                assert_eq!(
+                    without?,
+                    denied(DenyCode::NotSupported),
+                    "{capability} is refused before its session is checked"
+                );
+                assert_eq!(
+                    with?,
+                    denied(DenyCode::NotSupported),
+                    "{capability} in the operator's session"
+                );
+            }
             SessionRequirement::Required => {
                 assert_eq!(
                     without?,
@@ -634,4 +730,76 @@ fn authorize_raises_the_forbidden_session_fault_before_reading() {
         "fault, got {result:?}"
     );
     assert_eq!(view.reads.get(), 0, "no read before the fault");
+}
+
+/// The sub-agent's grant with `Ingest` added on every link.
+fn ingest_cast() -> MemView {
+    let mut view = cast();
+    for grant in view.grants.values_mut() {
+        grant.capabilities.insert(Capability::Ingest);
+    }
+    view
+}
+
+fn ingest(session: Option<SessionId>) -> AuthzRequest<'static> {
+    AuthzRequest {
+        capability: Capability::Ingest,
+        target: None,
+        session,
+        declared: Cost::default(),
+        ..capture()
+    }
+}
+
+#[test]
+fn authorize_refuses_ingest_as_not_supported_after_the_capability() -> Result<(), Error> {
+    let view = ingest_cast();
+    let own = decide(&view, &ingest(Some(S_SUB)))?;
+    let foreign = decide(&view, &ingest(Some(S_FOREIGN)))?;
+    let missing = decide(&view, &ingest(Some(S_MISSING)))?;
+    let none = decide(&view, &ingest(None))?;
+
+    assert_eq!(own, denied(DenyCode::NotSupported), "own session");
+    assert_eq!(foreign, own, "a foreign session reads the same");
+    assert_eq!(missing, own, "a missing session reads the same");
+    assert_eq!(none, own, "no session reads the same");
+    assert_eq!(
+        decide(&cast(), &ingest(Some(S_SUB)))?,
+        denied(DenyCode::CapabilityNotGranted),
+        "a grant without Ingest is refused at the capability check first"
+    );
+    let mut revoked = ingest_cast();
+    revoked.revoke(G_ROOT);
+    assert_eq!(
+        decide(&revoked, &ingest(None))?,
+        denied(DenyCode::GrantRevoked),
+        "chain validity comes before the capability"
+    );
+    assert_eq!(
+        decide(
+            &view,
+            &AuthzRequest {
+                tenant: FOREIGN,
+                ..ingest(None)
+            }
+        )?,
+        Decision::NotFoundOrDenied,
+        "a foreign designated grant is refused first"
+    );
+    assert_eq!(
+        plan(&view, &ingest(None), &FixedClock(NOW))?.refusal,
+        Some(Failure::denied(DenyCode::NotSupported)),
+        "a dry-run plans the same refusal"
+    );
+    Ok(())
+}
+
+#[test]
+fn is_served_refuses_only_ingest_in_version_1() {
+    let unserved: Vec<Capability> = Capability::ALL
+        .iter()
+        .copied()
+        .filter(|&capability| !is_served(capability))
+        .collect();
+    assert_eq!(unserved, [Capability::Ingest], "Ingest waits for D7");
 }
