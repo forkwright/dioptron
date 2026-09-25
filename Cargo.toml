@@ -82,11 +82,19 @@ rkyv = { version = "0.8.18", default-features = false, features = [
     "aligned",
     "pointer_width_32",
 ] }
+# WHY syntheke: the contract crate; epitrope decides over its types.
+# Publishable crates pin internal dependencies by version, declared once here.
+syntheke = { path = "crates/syntheke", version = "0.1.6" }
 # WHY snafu: the fleet error library (kanon RUST.md); thiserror is banned.
 snafu = "0.9.2"
 # WHY toml (dev only): the contract fixtures are TOML files that the
 # syntheke conformance test parses.
 toml = "1.1.6"
+# WHY proptest (dev only): epitrope's narrowing check must hold for every
+# child grant, not only hand-picked ones; proptest generates and shrinks
+# random children. Default features are off so it pulls no OS random source
+# (getrandom) and no fork or tempfile support; runs start from a fixed seed.
+proptest = { version = "1.11.0", default-features = false, features = ["alloc", "no_std"] }
 
 [profile.dev.package."*"]
 opt-level = 2
