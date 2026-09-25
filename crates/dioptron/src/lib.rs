@@ -19,13 +19,17 @@
 //! - [`Producer`]: the producer seam, with [`UnavailableProducer`] (the
 //!   default: never fetches) and [`FixtureProducer`] (scripted, for tests).
 //! - [`StoreTenants`]: the handshake's tenant directory over the store.
+//! - [`cli`]: the `dioptron` command line.
 //! - [`CancelSignal`]: the cancellation signal the server hands each
 //!   dispatched request, which the lifecycle passes on to the producer.
 #![deny(missing_docs)]
 
 mod cancel;
+pub mod cli;
 mod clock;
 mod error;
+#[cfg(feature = "failpoints")]
+pub mod failpoint;
 mod fixture;
 mod orchestrator;
 mod producer;
