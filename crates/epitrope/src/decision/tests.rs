@@ -2,6 +2,7 @@ use syntheke::{Ceilings, SessionScope, Timestamp};
 
 use super::*;
 use crate::clock::FixedClock;
+use crate::session::{SessionRequirement, session_requirement};
 use crate::test_support::{
     AGENT, CHILD_EXPIRES, FOREIGN, G_AGENT, G_FOREIGN, G_MISSING, G_ROOT, G_SUB, MemView, NOW,
     S_AGENT, S_FOREIGN, S_MISSING, S_OPERATOR, SUB, sub_grant,
@@ -516,4 +517,121 @@ fn plan_reports_the_refusal_of_a_call_that_would_be_denied() -> Result<(), Error
     )?;
     assert_eq!(foreign, missing, "the plan does not leak a foreign grant");
     Ok(())
+}
+
+/// The operator acting under its root grant, which confers every
+/// capability, with or without its own session.
+fn operator_call(capability: Capability, session: Option<SessionId>) -> AuthzRequest<'static> {
+    AuthzRequest {
+        tenant: crate::test_support::OPERATOR,
+        grant: G_ROOT,
+        capability,
+        target: (capability == Capability::Capture).then_some(TARGET),
+        session,
+        declared: one_fetch(),
+    }
+}
+
+#[test]
+fn authorize_enforces_the_session_requirement_of_every_capability() -> Result<(), Error> {
+    let view = cast();
+    for &capability in Capability::ALL {
+        let without = decide(&view, &operator_call(capability, None));
+        let with = decide(&view, &operator_call(capability, Some(S_OPERATOR)));
+        match session_requirement(capability) {
+            SessionRequirement::Required => {
+                assert_eq!(
+                    without?,
+                    denied(DenyCode::SessionRequired),
+                    "{capability} without a session"
+                );
+                assert!(
+                    matches!(with?, Decision::Allowed { .. }),
+                    "{capability} in the operator's session"
+                );
+            }
+            SessionRequirement::Optional => {
+                assert!(
+                    matches!(without?, Decision::Allowed { .. }),
+                    "{capability} without a session"
+                );
+                assert!(
+                    matches!(with?, Decision::Allowed { .. }),
+                    "{capability} in the operator's session"
+                );
+            }
+            SessionRequirement::Forbidden => {
+                assert!(
+                    matches!(without?, Decision::Allowed { .. }),
+                    "{capability} without a session"
+                );
+                assert!(
+                    matches!(
+                        with,
+                        Err(Error::SessionNotApplicable { capability: named, .. })
+                            if named == capability
+                    ),
+                    "{capability} naming a session is a fault, got {with:?}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn authorize_checks_the_session_requirement_after_the_capability() -> Result<(), Error> {
+    let view = cast();
+    let unconferred = AuthzRequest {
+        capability: Capability::Query,
+        target: None,
+        session: None,
+        ..capture()
+    };
+    assert_eq!(
+        decide(&view, &unconferred)?,
+        denied(DenyCode::CapabilityNotGranted),
+        "the sub-agent's grant confers no Query"
+    );
+    let foreign = AuthzRequest {
+        tenant: FOREIGN,
+        session: None,
+        ..capture()
+    };
+    assert_eq!(
+        decide(&view, &foreign)?,
+        Decision::NotFoundOrDenied,
+        "a foreign grant reads as missing before the session is checked"
+    );
+    let sessionless = AuthzRequest {
+        session: None,
+        ..capture()
+    };
+    assert_eq!(
+        decide(&view, &sessionless)?,
+        denied(DenyCode::SessionRequired),
+        "a capture without a session"
+    );
+    assert_eq!(
+        plan(&view, &sessionless, &FixedClock(NOW))?.refusal,
+        Some(Failure::denied(DenyCode::SessionRequired)),
+        "a dry-run reports the same refusal"
+    );
+    Ok(())
+}
+
+#[test]
+fn authorize_raises_the_forbidden_session_fault_before_reading() {
+    let view = cast();
+    let request = AuthzRequest {
+        tenant: FOREIGN,
+        grant: G_MISSING,
+        ..operator_call(Capability::GrantRevoke, Some(S_OPERATOR))
+    };
+    let result = decide(&view, &request);
+    assert!(
+        matches!(result, Err(Error::SessionNotApplicable { .. })),
+        "fault, got {result:?}"
+    );
+    assert_eq!(view.reads.get(), 0, "no read before the fault");
 }

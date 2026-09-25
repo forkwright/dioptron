@@ -1,7 +1,7 @@
 //! The crate error type.
 
 use snafu::Snafu;
-use syntheke::{Dimension, GrantId, InvocationState, TenantId};
+use syntheke::{Capability, Dimension, GrantId, InvocationState, TenantId};
 
 use crate::budget::Settlement;
 use crate::lifecycle::Step;
@@ -109,6 +109,18 @@ pub enum Error {
         actual: u64,
         /// The clamped settlement.
         settlement: Settlement,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    /// The call names a session, and `capability` acts in none
+    /// ([`crate::SessionRequirement::Forbidden`]). Its request body carries
+    /// no session, so only a caller fault supplies one.
+    #[snafu(display("{capability} acts in no session, and the call names one"))]
+    SessionNotApplicable {
+        /// The capability invoked.
+        capability: Capability,
         /// Where the error was raised.
         #[snafu(implicit)]
         location: snafu::Location,

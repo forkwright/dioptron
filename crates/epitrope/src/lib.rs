@@ -9,7 +9,8 @@
 //! - chain validity at an injected [`Clock`]'s instant against revocation
 //!   records, with no fan-out on revocation ([`check_chain`]);
 //! - designated-grant authorization ([`authorize`]), where a grant the
-//!   caller does not hold reads exactly as a missing one;
+//!   caller does not hold reads exactly as a missing one, and each
+//!   capability's session requirement ([`session_requirement`]) holds;
 //! - budget reservation and settlement arithmetic ([`plan_reservation`],
 //!   [`settle`]);
 //! - the invocation transition table and restart recovery ([`next_state`],
@@ -32,6 +33,7 @@ mod error;
 mod grant;
 mod lifecycle;
 mod origin;
+mod session;
 mod view;
 
 #[cfg(test)]
@@ -52,4 +54,5 @@ pub use grant::{
 };
 pub use lifecycle::{RecoveryAction, Step, next_state, recovery_action};
 pub use origin::{Origin, OriginPattern, Scheme, TargetScope};
+pub use session::{SessionRequirement, session_requirement};
 pub use view::{GrantView, LedgerId, LedgerView, Snapshot, ViewError};
