@@ -33,9 +33,9 @@ No qualified fleet tier fits the need yet:
 
 Raw fjall is therefore the sanctioned substrate under the migration exception.
 The owning crate names pinax and koina as the target tiers in its roadmap.
-Removal of the direct fjall dependency will be tracked in a STORAGE-TIERS
-exception issue, to be filed when the custody crate lands; its number is not yet
-assigned.
+Removal of the direct fjall dependency is tracked in the STORAGE-TIERS
+exception issue
+[dioptron#91](https://github.com/forkwright/dioptron/issues/91).
 Retirement condition: the exception is retired when pinax ships a multi-row
 transaction with schema migration and encryption, and koina exposes a public
 content-addressed blob API. Until both exist, this store uses fjall directly and
