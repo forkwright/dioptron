@@ -22,8 +22,15 @@ named_enum! {
         /// The grant or a link in its chain is revoked.
         GrantRevoked => "GrantRevoked",
         /// A requested child grant does not attenuate its parent on some
-        /// axis ([`NarrowingAxis`]).
+        /// axis ([`NarrowingAxis`]); the failure names the axis.
         NarrowingViolation => "NarrowingViolation",
+        /// A budget ledger the caller does not own (an ancestor grant's, or
+        /// a session another tenant owns) cannot cover the declared cost.
+        /// The dimension is withheld; the caller's own ledgers report
+        /// [`Failure::BudgetExceeded`] instead.
+        BudgetUnavailable => "BudgetUnavailable",
+        /// The capability requires a session and the call names none.
+        SessionRequired => "SessionRequired",
     }
 }
 
@@ -33,6 +40,8 @@ named_enum! {
     pub enum NarrowingAxis {
         /// The child's capability set is not a subset of the parent's.
         Capabilities => "capabilities",
+        /// The child's audit scope reads records the parent's does not.
+        AuditScope => "audit_scope",
         /// The child's session scope is not a subset of the parent's.
         SessionScope => "session_scope",
         /// The child's target scope is not a subset of the parent's.
@@ -97,9 +106,17 @@ pub enum Failure {
     AuthFailed,
     /// Authorization failed for a stated policy reason on a resource the
     /// caller may know exists.
+    ///
+    /// `axis` is set exactly when `code` is
+    /// [`DenyCode::NarrowingViolation`], naming the first axis on which the
+    /// requested child fails to attenuate the issuer's own designated
+    /// grant. Any other combination is malformed
+    /// ([`Failure::is_well_formed`]).
     Denied {
         /// The policy reason.
         code: DenyCode,
+        /// The failing attenuation axis of a narrowing violation.
+        axis: Option<NarrowingAxis>,
     },
     /// The resource is missing, or it exists and the caller may not see it.
     /// Byte-identical for both.
@@ -132,6 +149,34 @@ pub enum Failure {
 }
 
 impl Failure {
+    /// A denial for `code` with no axis. A narrowing violation is built
+    /// with [`Failure::narrowing`], which names the axis.
+    #[must_use]
+    pub const fn denied(code: DenyCode) -> Self {
+        Self::Denied { code, axis: None }
+    }
+
+    /// A narrowing-violation denial naming the failing `axis`.
+    #[must_use]
+    pub const fn narrowing(axis: NarrowingAxis) -> Self {
+        Self::Denied {
+            code: DenyCode::NarrowingViolation,
+            axis: Some(axis),
+        }
+    }
+
+    /// Whether a `Denied` failure carries an axis exactly when its code is
+    /// [`DenyCode::NarrowingViolation`]. Every other failure is well formed.
+    #[must_use]
+    pub const fn is_well_formed(self) -> bool {
+        match self {
+            Self::Denied { code, axis } => {
+                matches!(code, DenyCode::NarrowingViolation) == axis.is_some()
+            }
+            _ => true,
+        }
+    }
+
     /// The outcome kind of this failure.
     #[must_use]
     pub const fn kind(self) -> OutcomeKind {
@@ -252,125 +297,4 @@ named_enum! {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn every_failure() -> Vec<Failure> {
-        vec![
-            Failure::ProtocolError,
-            Failure::AuthFailed,
-            Failure::Denied {
-                code: DenyCode::GrantExpired,
-            },
-            Failure::NotFoundOrDenied,
-            Failure::BudgetExceeded {
-                dimension: Dimension::Fetches,
-            },
-            Failure::ProducerUnavailable,
-            Failure::TransferFailed {
-                class: TransferClass::Reset,
-            },
-            Failure::ExtractionFailed {
-                class: ExtractionClass::Malformed,
-            },
-            Failure::DeadlineExceeded,
-            Failure::Cancelled,
-            Failure::UnknownEffect,
-            Failure::IdempotencyConflict,
-        ]
-    }
-
-    #[test]
-    fn kind_names_match_the_contract_table() {
-        let names: Vec<&str> = every_failure().iter().map(|f| f.kind().name()).collect();
-        assert_eq!(
-            names,
-            [
-                "ProtocolError",
-                "AuthFailed",
-                "Denied",
-                "NotFoundOrDenied",
-                "BudgetExceeded",
-                "ProducerUnavailable",
-                "TransferFailed",
-                "ExtractionFailed",
-                "DeadlineExceeded",
-                "Cancelled",
-                "UnknownEffect",
-                "IdempotencyConflict",
-            ],
-            "the twelve contract outcome kinds, in table order"
-        );
-    }
-
-    #[test]
-    fn from_name_inverts_name_for_every_vocabulary() {
-        fn check<T: Copy + PartialEq + core::fmt::Debug>(
-            all: &[T],
-            name: fn(T) -> &'static str,
-            parse: fn(&str) -> Option<T>,
-        ) {
-            for &value in all {
-                assert_eq!(parse(name(value)), Some(value), "{value:?} round-trips");
-            }
-            assert_eq!(parse("NoSuchName"), None, "unknown names do not parse");
-        }
-        check(DenyCode::ALL, DenyCode::name, DenyCode::from_name);
-        check(
-            NarrowingAxis::ALL,
-            NarrowingAxis::name,
-            NarrowingAxis::from_name,
-        );
-        check(
-            TransferClass::ALL,
-            TransferClass::name,
-            TransferClass::from_name,
-        );
-        check(
-            ExtractionClass::ALL,
-            ExtractionClass::name,
-            ExtractionClass::from_name,
-        );
-        check(OutcomeKind::ALL, OutcomeKind::name, OutcomeKind::from_name);
-        check(
-            InvocationState::ALL,
-            InvocationState::name,
-            InvocationState::from_name,
-        );
-        check(
-            ReleaseReason::ALL,
-            ReleaseReason::name,
-            ReleaseReason::from_name,
-        );
-        check(Dimension::ALL, Dimension::name, Dimension::from_name);
-    }
-
-    #[test]
-    fn terminal_states_are_denied_and_the_b5_states() {
-        let terminal: Vec<&str> = InvocationState::ALL
-            .iter()
-            .filter(|s| s.is_terminal())
-            .map(|s| s.name())
-            .collect();
-        assert_eq!(
-            terminal,
-            ["Denied", "Settled", "Released", "UnknownEffect"],
-            "terminal set"
-        );
-        let volatile: Vec<&str> = InvocationState::ALL
-            .iter()
-            .filter(|s| !s.is_durable())
-            .map(|s| s.name())
-            .collect();
-        assert_eq!(volatile, ["Planned"], "only Planned is in memory");
-    }
-
-    #[test]
-    fn display_writes_the_contract_name() {
-        assert_eq!(
-            OutcomeKind::NotFoundOrDenied.to_string(),
-            "NotFoundOrDenied",
-            "display is the name"
-        );
-    }
-}
+mod tests;

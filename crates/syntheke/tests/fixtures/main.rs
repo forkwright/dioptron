@@ -16,11 +16,11 @@ mod tests {
     use std::collections::BTreeSet;
 
     use syntheke::{
-        Capability, ClientHello, DEFAULT_MAX_BODY, Error, Failure, Fault, FrameHeader, FrameKind,
-        GrantId, HEADER_LEN, InvocationState, Mode, NONCE_LEN, NarrowingAxis, Nonce, OutcomeKind,
-        PRE_AUTH_MAX_BODY, ReleaseReason, Request, RequestBody, Response, ResponseBody, SessionId,
-        TenantId, Timestamp, VersionChoice, WIRE_VERSION, decode, decode_frame, encode,
-        encode_frame, negotiate_version,
+        Capability, ClientHello, DEFAULT_MAX_BODY, DenyCode, Error, Failure, Fault, FrameHeader,
+        FrameKind, GrantId, HEADER_LEN, InvocationState, Mode, NONCE_LEN, NarrowingAxis, Nonce,
+        OutcomeKind, PRE_AUTH_MAX_BODY, ReleaseReason, Request, RequestBody, Response,
+        ResponseBody, SessionId, TenantId, Timestamp, VersionChoice, WIRE_VERSION, decode,
+        decode_frame, encode, encode_frame, negotiate_version,
     };
     use toml::Value;
 
@@ -32,7 +32,7 @@ mod tests {
 
     /// Every scenario the contract declares. A missing file fails the test;
     /// an undeclared file fails it too, so a new fixture gets a mapping.
-    const DECLARED: [&str; 22] = [
+    const DECLARED: [&str; 23] = [
         "audit_query_own",
         "capture_success",
         "capture_truncated",
@@ -50,6 +50,7 @@ mod tests {
         "neg_oversized_frame",
         "neg_producer_unavailable",
         "neg_revoked_parent",
+        "neg_session_required",
         "neg_transfer_failed",
         "query_success",
         "read_success",
@@ -475,6 +476,28 @@ mod tests {
             flag(&foreign.expected, "indistinguishable"),
             Some(true),
             "{name}: the reply matches the reply for a grant that does not exist"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn narrowing_violation_fixture_carries_its_axis_over_the_wire() -> TestResult {
+        let fixture = fixture("neg_narrowing_violation")?;
+        let name = &fixture.name;
+        let request = fixture_request(&fixture, Capability::GrantIssue)?;
+        let response = Response {
+            request_id: 1,
+            invocation: None,
+            body: ResponseBody::Failed(failure(OutcomeKind::Denied, &fixture.expected, name)?),
+        };
+        let (_, back) = through_wire(&request, &response)?;
+        assert_eq!(
+            back.body,
+            ResponseBody::Failed(Failure::Denied {
+                code: DenyCode::NarrowingViolation,
+                axis: Some(NarrowingAxis::Capabilities),
+            }),
+            "{name}: the issuer learns the failing axis"
         );
         Ok(())
     }

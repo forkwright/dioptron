@@ -94,6 +94,9 @@ rkyv = { version = "0.8.18", default-features = false, features = [
     "aligned",
     "pointer_width_32",
 ] }
+# WHY syntheke: the contract crate; epitrope decides over its types.
+# Publishable crates pin internal dependencies by version, declared once here.
+syntheke = { path = "crates/syntheke", version = "0.1.6" }
 # WHY rustix (dev only): safe POSIX calls in tests (sending a signal to the
 # test process). Already in the tree under tempfile, so no new version.
 rustix = { version = "1.1.5", default-features = false }
@@ -108,6 +111,11 @@ tokio = { version = "1.53", default-features = false }
 # WHY toml (dev only): the contract fixtures are TOML files that the
 # syntheke conformance test parses.
 toml = "1.1.6"
+# WHY proptest (dev only): epitrope's narrowing check must hold for every
+# child grant, not only hand-picked ones; proptest generates and shrinks
+# random children. Default features are off so it pulls no OS random source
+# (getrandom) and no fork or tempfile support; runs start from a fixed seed.
+proptest = { version = "1.11.0", default-features = false, features = ["alloc", "no_std"] }
 # WHY tracing: structured spans per connection and request (fleet standard
 # for diagnostics).
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }

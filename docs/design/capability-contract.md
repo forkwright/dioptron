@@ -76,7 +76,7 @@ version 1 defines:
 | `Read` | Read a stored artifact or record the tenant is authorized to see. |
 | `Query` | Query indexed or knowledge state within the tenant's read scope. |
 | `GrantIssue` | Issue a child grant that attenuates one the tenant holds. |
-| `GrantRevoke` | Revoke a grant the tenant issued, and its descendants. |
+| `GrantRevoke` | Revoke the designated grant or a grant that descends from it, and through chain validity its descendants. |
 | `AuditQuery` | Read audit records within the tenant's audit scope. |
 
 Every request also carries a mode: `Execute` or `DryRun`. Dry-run answers the
@@ -96,6 +96,10 @@ for `Capture`), per-dimension budget ceilings, a validity window
 (`not_before`, `expires_at`), and, when it is a child grant, its parent grant,
 its depth, and the maximum depth the chain permits.
 
+A session scope of `Own` admits the sessions owned by the holder or by any
+tenant that descends from the holder through tenant parent links. A tenant
+lineage that does not end within 255 parent links fails closed.
+
 ### Grant designation
 
 Every capability request, in `Execute` and `DryRun` mode alike, carries a
@@ -111,25 +115,81 @@ grant that does not exist and a grant held by another tenant return the
 identical `NotFoundOrDenied` response, so a request cannot probe for another
 tenant's grant. A designated grant the tenant holds that cannot authorize the
 call returns the `Denied` code the check reaches: `CapabilityNotGranted`,
-`ScopeViolation`, `GrantNotYetValid`, `GrantExpired`, or `GrantRevoked`. A
-dry-run reports the same refusal in its plan, and a plan's grant chain starts at
-the designated grant.
+`ScopeViolation`, `GrantNotYetValid`, `GrantExpired`, `GrantRevoked`,
+`SessionRequired`, or `BudgetUnavailable`, or it returns `BudgetExceeded`.
+
+The checks run in this order, and the first refusal wins: the designated
+grant, the validity of its whole chain, the capability, the session, the
+target, and the budget. Every link of the chain must confer the capability. A
+capability that requires a session (see session requirement below) and names
+none returns `Denied{SessionRequired}`. A
+request that names a session is checked against the session scope of every
+link: a session that does not exist, or one outside scope that the caller does
+not own, returns `NotFoundOrDenied`; the caller's own session outside scope
+returns `Denied{ScopeViolation}`. A `Capture` target must fall inside the
+target scope of every link; a missing target, or one outside the accepted
+origin syntax, returns `Denied{ScopeViolation}`.
+
+Authorization decides identically in `Execute` and `DryRun`; the mode decides
+only what the store persists. A dry-run reports the same refusal in its plan.
+An allowed plan's grant chain lists the chain leaf first, starting at the
+designated grant; a refused plan's grant chain is empty.
+
+### Session requirement
+
+Each capability requires, permits, or forbids a session. The session a call
+acts in comes from its body, as the table names.
+
+| Capability | Session | Taken from |
+|---|---|---|
+| `Capture` | required | `session` |
+| `SessionFork` | required | `parent_session` |
+| `Ingest`, `Read` | required | the session of the named artifact |
+| `Query` | required | `session_scope` |
+| `AuditQuery` | optional; narrows the audit scope | `session` |
+| `SessionCreate`, `GrantIssue`, `GrantRevoke` | forbidden | none |
+
+A required session that the call does not name is refused with
+`Denied{SessionRequired}` at the session check. A named artifact that does not
+exist returns `NotFoundOrDenied`; an existing artifact's session is then checked
+like any named session, so a foreign artifact reads as a missing one. A forbidden session has no field on the wire; the
+authorizer treats a session supplied for such a capability as a fault of its
+caller and decides nothing. A capability a later contract version adds
+requires a session until it states otherwise.
 
 ### Delegation attenuation
 
 A child grant is valid only if it attenuates its parent on every axis at once:
 
 - its capability set is a subset of the parent's;
-- its session and target scopes are subsets of the parent's;
-- each budget ceiling is at most the parent's remaining ceiling on that
-  dimension at issue time;
-- its `expires_at` is at or before the parent's;
-- its depth is less than the chain's maximum depth;
-- the parent is the grant the issuing request designates, and it confers
-  `GrantIssue`.
+- its audit scope is within the parent's (`OwnAndOwnedSessions` is within
+  `All`); a version 1 `GrantIssue` request carries no audit scope, so an issued
+  child's audit scope is `OwnAndOwnedSessions`;
+- its session scope is within the parent's: `Own` under `Own` only when the
+  child's holder is in the parent holder's lineage; an explicit set under `Own`
+  only when every named session exists and is owned within that lineage; an
+  explicit set under an explicit set only as a subset; `Own` under an explicit
+  set never;
+- its target scope is within the parent's: every child pattern is covered by a
+  parent pattern, and a pattern that does not parse fails this axis;
+- where the parent sets a budget ceiling, the child sets one at most the
+  parent's remaining ceiling on that dimension at issue time;
+- its validity window lies inside the parent's:
+  `parent.not_before <= child.not_before < child.expires_at <= parent.expires_at`;
+- its depth is the parent's plus one and less than the parent's maximum depth,
+  and its maximum depth is at most the parent's;
+- the parent is the grant the issuing request designates, every link of the
+  parent's chain confers `GrantIssue`, and the issuer is the parent's holder.
 
 A `GrantIssue` request names its parent only through its designated grant; its
 body carries no second parent field that could disagree with it.
+
+A child that fails an axis is refused with `Denied{NarrowingViolation}` naming
+the first failing axis, in the order capabilities, audit scope, session scope,
+target scope, ceilings, expiry, depth, issuer authority. The axis describes the
+request against the issuer's own designated grant, and a named session that
+does not exist fails the same axis as one owned outside the lineage, so the
+axis discloses nothing the issuer could not already see.
 
 A child can never be broader than its parent on any axis. The contract defines
 no widening operation.
@@ -138,7 +198,11 @@ no widening operation.
 
 A grant is usable at a moment only if the whole chain from that grant to its
 root is usable at that moment: every link satisfies `not_before <= now` and
-`now < expires_at`, and no link appears in the revocation set. Validity is
+`now < expires_at`, and no link appears in the revocation set. Any revocation
+record for a link invalidates it, whatever effect time the record carries. The
+walk runs from the designated grant toward the root; the first unusable link
+decides the code, and within one link revocation is reported before expiry and
+expiry before not-yet-valid. Validity is
 re-checked at dispatch and again at settlement, using an injected clock so the
 check is deterministic in tests. A grant that expires mid-invocation is handled
 by the revocation and lifecycle rules below, not by a separate path.
@@ -153,6 +217,24 @@ revocation invalidates its whole subtree the next time any descendant is
 checked. The sequence on the revocation record is the revocation epoch: a call
 authorized before the epoch and a call authorized after it are distinguishable
 in audit by comparing sequences, without mutating any descendant grant.
+
+### Revocation authority
+
+A `GrantRevoke` request designates grant D and names a target grant T. It is
+authorized only when all of these hold:
+
+- D's chain is valid and every link confers `GrantRevoke`;
+- T exists;
+- T is D, or T descends from D: walking T's parent links reaches D within 256
+  grants.
+
+The designated-grant checks run first and refuse as grant designation states.
+A missing T and a T outside D's subtree (an ancestor of D, including its own
+parent; a sibling; another tenant's grant) return the identical
+`NotFoundOrDenied`. A parent link that is missing, cyclic, or longer than the
+bound ends the walk outside the subtree. A T that already has a revocation
+record succeeds and writes no new record; the reply carries the existing
+record's grant, sequence, and time.
 
 ### Read scopes
 
@@ -183,7 +265,11 @@ Budget moves in two steps, each a single store transaction.
    every dimension against every ledger in the grant chain, plus the session
    ledger and the tenant ledger, in one transaction. If any ledger cannot cover
    the declared maximum, the reservation fails and nothing is debited. A
-   successful reservation is durable before the producer is contacted.
+   shortfall on a ledger the caller owns (its tenant ledger, a grant it holds,
+   or a session it owns) returns `BudgetExceeded{dimension}`; a shortfall only
+   on ledgers it does not own returns `Denied{BudgetUnavailable}`, which names
+   no dimension. A successful reservation is durable before the producer is
+   contacted.
 2. **Settle.** After the outcome is known, the invocation debits the actual
    consumption, which is at most the reserved maximum, and releases the
    remainder back to every ledger in one transaction. A call that consumed
@@ -216,6 +302,19 @@ non-exhaustive: `Abandoned` (restart recovery at B1), `Revoked` (revocation
 before any effect), `Cancelled` and `DeadlineExceeded` (the producer reports it
 had not started), and `ProducerUnavailable` (the producer reports it was never
 contacted).
+
+The legal transitions are exactly these; the store refuses every other step,
+including any step out of a terminal state:
+
+- `Planned` to `Denied` or B1.
+- B1 to B2, or to `Released` for `Abandoned`, `Revoked`, `Cancelled`, or
+  `DeadlineExceeded`.
+- B2 to B3; to `Settled` when the producer reports a failure after the effect
+  started; to `UnknownEffect`; or to `Released` for `Revoked`, `Cancelled`,
+  `DeadlineExceeded`, or `ProducerUnavailable`, each only when the producer
+  reports it had not started.
+- B3 to B4, and B4 to `Settled`. Nothing releases at B3 or later, because the
+  effect is durable there.
 
 The atomic publish point is B4: before it, a partial capture is invisible and
 recoverable to a released or unknown-effect terminal; at it, the capture becomes
@@ -284,7 +383,7 @@ defines:
 |---|---|---|
 | `ProtocolError` | protocol | The frame or sequence violated the wire contract. |
 | `AuthFailed` | protocol | The handshake did not establish an admitted identity. One kind for every cause. |
-| `Denied{code}` | denial | Authorization failed for a stated policy reason on a resource the caller may know exists. |
+| `Denied{code, axis}` | denial | Authorization failed for a stated policy reason on a resource the caller may know exists. `axis` is present exactly when `code` is `NarrowingViolation`. |
 | `NotFoundOrDenied` | denial | The resource is missing, or it exists but the caller may not see it. One response, byte-identical for both. |
 | `BudgetExceeded{dimension}` | denial | A ceiling on one of the caller's own ledgers was reached. Reported only for the caller's own ledgers. |
 | `ProducerUnavailable` | unavailable producer | The producer could not be contacted. |
@@ -305,9 +404,17 @@ A caller can act differently on each: retry, re-authorize, or report.
 Version 1 `Denied` codes, non-exhaustive: `CapabilityNotGranted`,
 `ScopeViolation` (a target outside the grant's target scope),
 `GrantNotYetValid`, `GrantExpired`, `GrantRevoked` (the grant or any link in its
-chain), and `NarrowingViolation` (a child grant that does not attenuate its
-parent). Transfer and extraction classes are coarse and non-exhaustive, for
-example `Reset` or `Timeout` for a transfer and `Malformed` or `Unsupported` for
+chain), `NarrowingViolation` (a child grant that does not attenuate its parent;
+the reply names the first failing axis), `BudgetUnavailable` (a ledger the
+caller does not own cannot cover the declared cost; no dimension is named), and
+`SessionRequired` (the capability requires a session and the call names none). A
+`Denied` reply whose axis does not match its code fails validation. Version 1
+narrowing axes, non-exhaustive: `capabilities`, `audit_scope`,
+`session_scope`, `target_scope`, `ceilings`, `expiry`, `depth`, and
+`issuer_authority`.
+
+Transfer and extraction classes are coarse and non-exhaustive, for example
+`Reset` or `Timeout` for a transfer and `Malformed` or `Unsupported` for
 extraction; a class never carries origin content or a URL.
 
 ### The non-leak rule
@@ -321,7 +428,8 @@ no timing claim beyond that. `Denied{code}` is used only where the caller is
 already entitled to know the resource exists. The rule covers grants too: a
 designated grant that does not exist and a grant held by another tenant return
 the identical `NotFoundOrDenied`. `BudgetExceeded` names a dimension only on
-the caller's own ledgers, never a parent's or another tenant's. No outcome ever
+the caller's own ledgers, never a parent's or another tenant's; exhaustion there
+is `Denied{BudgetUnavailable}`. No outcome ever
 echoes a target, artifact reference, or URL the caller did not itself supply.
 
 ## Source envelope reference
@@ -609,6 +717,7 @@ read, a query, an audit query, a session create or fork, a valid narrowing
 grant, a revoke, or a dry-run). A negative fixture asserts a refusal with a
 specific outcome kind (an incompatible version, an oversized frame, a
 cross-tenant read, a foreign designated grant, an expired grant, a narrowing
-violation, a revoked parent, an idempotency conflict, an unavailable producer,
-a failed transfer, a failed extraction, or a forged identity). A test that finds
-a declared fixture missing fails loudly rather than skipping.
+violation, a revoked parent, a missing required session, an idempotency
+conflict, an unavailable producer, a failed transfer, a failed extraction, or a
+forged identity). A test that finds a declared fixture missing fails loudly
+rather than skipping.

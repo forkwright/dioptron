@@ -9,3 +9,10 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+snafu.workspace = true
+syntheke.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
