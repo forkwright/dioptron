@@ -9,3 +9,26 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+snafu.workspace = true
+syntheke = { version = "0.1.6", path = "../syntheke" }
+# WHY these features: net (Unix listener, peer credentials), rt (spawn,
+# JoinSet, blocking pool), io-util (read_exact, write_all), time (frame,
+# handshake, idle, and deadline timers), sync (semaphore, watch, mpsc),
+# macros (select!), signal (graceful shutdown).
+tokio = { workspace = true, features = ["net", "rt", "io-util", "time", "sync", "macros", "signal"] }
+tracing.workspace = true
+
+[dev-dependencies]
+# WHY rkyv (dev only): tests serialize bodies that are valid archives but
+# break a contract invariant, which the contract encoder refuses to build.
+rkyv.workspace = true
+# WHY rustix (dev only): the shutdown-signal test sends SIGTERM to its own
+# process through a safe call instead of spawning a `kill` binary. The same
+# rustix version is already in the tree under tempfile; `process` adds only
+# the kill and getpid calls.
+rustix = { workspace = true, features = ["process"] }
+tempfile.workspace = true
