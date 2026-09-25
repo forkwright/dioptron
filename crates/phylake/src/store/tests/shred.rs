@@ -171,6 +171,27 @@ fn shredded_tenant_cannot_act_or_register_again() {
 }
 
 #[test]
+fn a_reader_of_an_older_snapshot_does_not_recache_shredded_keys() {
+    let fixture = Fixture::new();
+    let store = fixture.seeded();
+    let before = store.db.read_tx();
+    store.shred_tenant(AGENT).expect("shred");
+    drop(
+        store
+            .tenant_keys(&before, AGENT)
+            .expect("the older snapshot still holds the wrapped key"),
+    );
+    assert!(
+        !store
+            .tenant_keys
+            .lock()
+            .expect("cache")
+            .contains_key(&AGENT),
+        "the shredded tenant's keys are not cached"
+    );
+}
+
+#[test]
 fn shred_mid_rotation_deletes_both_keys() {
     let fixture = Fixture::new();
     let store = fixture.seeded();

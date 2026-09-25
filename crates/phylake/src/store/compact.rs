@@ -22,19 +22,35 @@
 //! they used. Erasure below the filesystem is out of scope for Phase 01.
 
 use std::collections::HashMap;
+use std::fs::TryLockError;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use fjall::{PersistMode, Readable as _};
 use rustix::fs::{CWD, RenameFlags};
-use snafu::{OptionExt as _, ResultExt as _};
+use rustix::io::Errno;
+use snafu::{IntoError as _, OptionExt as _, ResultExt as _};
 
 use super::{ALL_KEYSPACES, Keyspaces, Store, open_database, prepare_empty_dir};
 use crate::Result;
-use crate::error::{DatabaseSnafu, StoreIoSnafu, StorePathUnnamedSnafu};
+use crate::error::{
+    DatabaseSnafu, ExchangeUnsupportedSnafu, StoreInUseSnafu, StoreIoSnafu, StorePathUnnamedSnafu,
+};
 
 /// Entries copied per transaction.
 const COPY_BATCH: usize = 1024;
+
+/// The lock file fjall 3 keeps in a database directory and holds an
+/// advisory lock on while the database is open (verified in the fjall
+/// 3.1 source, `file::LOCK_FILE`).
+const FJALL_LOCK_FILE: &str = "lock";
+
+/// Attempts to take a closed database's lock, as fjall's open makes.
+const LOCK_ATTEMPTS: u32 = 3;
+
+/// The wait between lock attempts.
+const LOCK_RETRY: Duration = Duration::from_millis(100);
 
 impl Store {
     /// Rewrites the store into a fresh database and swaps it in, so no
@@ -49,10 +65,12 @@ impl Store {
     /// # Errors
     ///
     /// [`crate::Error::StorePathUnnamed`] for a path with no final
-    /// component, [`crate::Error::StoreIo`] when the copy directory, the
-    /// exchange, or the removal fails (the kernel and filesystem must
-    /// support `RENAME_EXCHANGE`), or [`crate::Error::Database`]. On an
-    /// error the store path still holds a complete store; reopen it.
+    /// component, [`crate::Error::ExchangeUnsupported`] when the kernel or
+    /// filesystem has no `RENAME_EXCHANGE`, [`crate::Error::StoreInUse`]
+    /// when another process opened either directory before the swap,
+    /// [`crate::Error::StoreIo`] when the copy directory, the exchange, or
+    /// the removal fails, or [`crate::Error::Database`]. On an error the
+    /// store path still holds a complete store; reopen it.
     pub fn compact(self) -> Result<Self> {
         let staging = staging_path(&self.path)?;
         remove_leftover(&self.path)?;
@@ -70,8 +88,7 @@ impl Store {
         } = self;
         drop(ks);
         drop(db);
-        exchange(&path, &staging)?;
-        remove_leftover(&path)?;
+        swap_in(&path, &staging)?;
         let db = open_database(&path)?;
         let ks = Keyspaces::open(&db)?;
         Ok(Self {
@@ -130,12 +147,70 @@ pub(super) fn remove_leftover(path: &Path) -> Result<()> {
     }
 }
 
+/// Swaps the copy at `staging` in for the store at `path` and removes the
+/// replaced store.
+///
+/// Both databases are closed, so their fjall lock files are free. This
+/// takes both locks before the exchange and holds them until the replaced
+/// store is removed: another process that opened either directory in the
+/// meantime makes the swap fail with [`crate::Error::StoreInUse`] rather
+/// than have its open database renamed away and deleted, and no open
+/// removes the staging directory while the swap still uses it. The locks
+/// follow the directories through the exchange.
+pub(super) fn swap_in(path: &Path, staging: &Path) -> Result<()> {
+    let store_lock = lock_database(path)?;
+    let staging_lock = lock_database(staging)?;
+    exchange(path, staging)?;
+    remove_leftover(path)?;
+    drop((store_lock, staging_lock));
+    Ok(())
+}
+
+/// Takes the fjall lock of the closed database at `dir`, the same
+/// advisory file lock fjall takes at open.
+fn lock_database(dir: &Path) -> Result<std::fs::File> {
+    let lock_path = dir.join(FJALL_LOCK_FILE);
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .context(StoreIoSnafu { path: &lock_path })?;
+    for attempt in 1..=LOCK_ATTEMPTS {
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(TryLockError::WouldBlock) if attempt < LOCK_ATTEMPTS => {
+                // WHY: fjall releases its lock when the last handle of the
+                // closed database drops; allow it the retry fjall's own
+                // open allows.
+                std::thread::sleep(LOCK_RETRY);
+            }
+            Err(TryLockError::WouldBlock) => break,
+            Err(TryLockError::Error(error)) => {
+                return Err(error).context(StoreIoSnafu { path: lock_path });
+            }
+        }
+    }
+    StoreInUseSnafu { path: dir }.fail()
+}
+
 /// Atomically exchanges the directories at `path` and `staging`.
+///
+/// WARNING: there is no fallback. Two plain renames would leave an
+/// instant with no store at `path`, so a filesystem without the exchange
+/// fails the compaction with [`crate::Error::ExchangeUnsupported`].
 fn exchange(path: &Path, staging: &Path) -> Result<()> {
     rustix::fs::renameat_with(CWD, path, CWD, staging, RenameFlags::EXCHANGE)
-        .map_err(std::io::Error::from)
-        .context(StoreIoSnafu { path })?;
+        .map_err(|errno| exchange_error(errno, path))?;
     sync_parent(path)
+}
+
+/// The error for a failed exchange: unsupported, or any other I/O failure.
+pub(super) fn exchange_error(errno: Errno, path: &Path) -> crate::Error {
+    if [Errno::INVAL, Errno::NOSYS, Errno::OPNOTSUPP].contains(&errno) {
+        ExchangeUnsupportedSnafu { path }.build()
+    } else {
+        StoreIoSnafu { path }.into_error(std::io::Error::from(errno))
+    }
 }
 
 /// Flushes the directory holding `path`, so a rename or removal in it is

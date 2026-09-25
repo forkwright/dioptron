@@ -186,6 +186,42 @@ fn reads_and_writes_work_mid_rotation() {
 }
 
 #[test]
+fn a_reader_of_an_older_snapshot_does_not_recache_a_retired_key() {
+    let fixture = Fixture::new();
+    let (store, _) = populated(&fixture);
+    store.begin_rekey(AGENT).expect("begin");
+    let mid_rotation = store.db.read_tx();
+    store.rekey_tenant(AGENT, ONE).expect("finish");
+    let stale = store
+        .tenant_keys(&mid_rotation, AGENT)
+        .expect("the older snapshot still names both keys");
+    assert_eq!(stale.retiring_id(), Some(KEY_1), "loaded with the old key");
+    drop(stale);
+    let cached = store
+        .tenant_keys
+        .lock()
+        .expect("cache")
+        .get(&AGENT)
+        .map(|keys| keys.retiring_id());
+    assert_eq!(cached, None, "the retired key is not cached");
+    let fresh = store
+        .tenant_keys(&store.db.read_tx(), AGENT)
+        .expect("current keys");
+    assert_eq!(
+        (fresh.key_id(), fresh.retiring_id()),
+        (KEY_2, None),
+        "current"
+    );
+    let cached = store
+        .tenant_keys
+        .lock()
+        .expect("cache")
+        .get(&AGENT)
+        .map(|keys| (keys.key_id(), keys.retiring_id()));
+    assert_eq!(cached, Some((KEY_2, None)), "the current key is cached");
+}
+
+#[test]
 fn begin_while_rotating_is_refused_and_batch_without_rotation_is_refused() {
     let fixture = Fixture::new();
     let (store, _) = populated(&fixture);

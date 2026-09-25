@@ -126,14 +126,9 @@ impl Store {
         reader: &R,
         tenant: TenantId,
     ) -> Result<Arc<TenantKeyring>> {
-        let Some(record) = self.tenant_record(reader, tenant)? else {
+        let Some((active, retiring)) = self.key_ids(reader, tenant)? else {
             return Err(self.absent_tenant(reader, tenant));
         };
-        let active = KeyId::new(record.data_key_id);
-        let retiring = self
-            .rekey_record(reader, tenant)?
-            .filter(|rekey| !rekey.done)
-            .map(|rekey| KeyId::new(rekey.from_key_id));
         let cached = self
             .tenant_keys
             .lock()
@@ -145,11 +140,37 @@ impl Store {
             return Ok(keys);
         }
         let keyring = Arc::new(self.load_keyring(reader, tenant, active, retiring)?);
-        self.tenant_keys
+        let mut cache = self
+            .tenant_keys
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(tenant, Arc::clone(&keyring));
+            .unwrap_or_else(PoisonError::into_inner);
+        // WHY: `reader` can be an older snapshot or an uncommitted write.
+        // Caching only what the latest commit names, checked under the
+        // cache lock, keeps a reader that loaded replaced keys from
+        // re-inserting them after a rotation or shred evicted them, and
+        // keeps an uncommitted registration's keys out of the cache.
+        if self.key_ids(&self.db.read_tx(), tenant)? == Some((active, retiring)) {
+            cache.insert(tenant, Arc::clone(&keyring));
+        }
         Ok(keyring)
+    }
+
+    /// The active data-key id of `tenant` and, while a rotation runs, the
+    /// retiring one, as `reader` sees them; `None` for a tenant with no
+    /// record.
+    fn key_ids<R: Readable>(
+        &self,
+        reader: &R,
+        tenant: TenantId,
+    ) -> Result<Option<(KeyId, Option<KeyId>)>> {
+        let Some(record) = self.tenant_record(reader, tenant)? else {
+            return Ok(None);
+        };
+        let retiring = self
+            .rekey_record(reader, tenant)?
+            .filter(|rekey| !rekey.done)
+            .map(|rekey| KeyId::new(rekey.from_key_id));
+        Ok(Some((KeyId::new(record.data_key_id), retiring)))
     }
 
     /// Like [`Store::tenant_keys`], but `None` for a shredded tenant, for

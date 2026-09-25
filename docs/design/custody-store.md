@@ -242,9 +242,11 @@ share one blob, which is never rewritten once written.
 
 ### Tenant key cache
 
-The store caches each tenant's unwrapped, derived subkeys in memory after the
-first read of its committed tenant record, so a rolled-back registration never
-leaves a cached key. The cache holds the keys in zeroizing containers. An entry
+The store caches each tenant's unwrapped, derived subkeys in memory, and only
+when the key ids the caller read match the latest committed tenant and rekey
+records, checked under the cache lock; a rolled-back registration therefore
+never leaves a cached key, and a reader holding an older snapshot cannot put
+back keys that a rotation or shred evicted. The cache holds the keys in zeroizing containers. An entry
 is keyed by the active and retiring data-key ids that the caller's own
 transaction or snapshot reads from the tenant and rekey records, and is used
 only when they match; a writer therefore always seals under the key its
@@ -339,6 +341,15 @@ The restore check also refuses a copy missing any keyspace. It opens the
 database, which runs the database's own journal recovery, and writes no store
 record.
 
+A backup keeps what the store held when it was copied, sealed under the root
+key of that moment. Two consequences follow. A backup taken before a root
+rotation opens only with the old root key, so destroying that key file also
+retires every such backup. A backup taken before a crypto-shred still holds
+the shredded tenant's wrapped data key, and restoring it with its root key
+brings the tenant's data back; a shred reaches backups only when those copies
+are destroyed, or when the root key they were sealed under is rotated out and
+destroyed.
+
 ## Crypto-shredding
 
 A tenant's durable data is shredded by deleting that tenant's wrapped data key
@@ -380,6 +391,12 @@ every live entry into a fresh database in a sibling staging directory, closes
 both, swaps the two directories with one atomic exchange rename, and removes
 the old one. The store path holds a complete store at every instant, and a
 staging directory an interrupted compaction leaves is removed at the next open.
+From closing the databases until the old directory is removed, compaction holds
+the database lock file of both directories, so a process that opened either one
+in the meantime fails the compaction instead of having its database renamed
+away. A filesystem without the atomic exchange fails the compaction with a
+distinct error, and nothing is swapped: two plain renames would leave an instant
+with no store at the path, so there is no fallback.
 The raw-disk inspection test asserts the shredded tenant's wrapped-key bytes,
 retired data keys included, are present before compaction and absent after it.
 Removal unlinks files and does not overwrite the blocks they used; erasure

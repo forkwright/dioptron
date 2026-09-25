@@ -3,10 +3,13 @@
 
 use std::path::Path;
 
+use rustix::io::Errno;
+
 use crate::Error;
 use crate::crypto::KeyId;
 use crate::keyfile::RootKey;
-use crate::store::compact::staging_path;
+use crate::store::compact::{exchange_error, staging_path, swap_in};
+use crate::store::open_database;
 use crate::store::test_support::{
     Fixture, ROOT_BYTES, TestClock, copy_tree, dump, publish_capture, reads,
 };
@@ -122,4 +125,49 @@ fn open_removes_a_leftover_staging_directory() {
 fn a_path_without_a_name_has_no_staging_directory() {
     let error = staging_path(Path::new("/")).expect_err("no name");
     assert!(matches!(error, Error::StorePathUnnamed { .. }), "{error:?}");
+}
+
+#[test]
+fn swap_refuses_a_directory_another_handle_holds_open() {
+    let fixture = Fixture::new();
+    let before = dump(&fixture.seeded());
+    let staging = staging_path(&fixture.path).expect("staging");
+    let other = open_database(&staging).expect("a database holding the staging lock");
+    let error = swap_in(&fixture.path, &staging).expect_err("staging is in use");
+    assert!(
+        matches!(&error, Error::StoreInUse { path, .. } if *path == staging),
+        "{error:?}"
+    );
+    drop(other);
+    assert!(staging.exists(), "the held directory is not removed");
+    assert_eq!(dump(&fixture.reopen()), before, "the store is not swapped");
+}
+
+#[test]
+fn swap_exchanges_the_directories_and_removes_the_old_store() {
+    let fixture = Fixture::new();
+    drop(fixture.seeded());
+    let staging = staging_path(&fixture.path).expect("staging");
+    drop(open_database(&staging).expect("an empty database"));
+    std::fs::write(staging.join("COPY-MARKER"), b"copy").expect("marker");
+    swap_in(&fixture.path, &staging).expect("swap");
+    assert!(
+        fixture.path.join("COPY-MARKER").exists(),
+        "the copy is at the store path"
+    );
+    assert!(!staging.exists(), "the replaced store is removed");
+}
+
+#[test]
+fn exchange_failures_name_an_unsupported_filesystem() {
+    let path = Path::new("/store");
+    for errno in [Errno::INVAL, Errno::NOSYS, Errno::OPNOTSUPP] {
+        let error = exchange_error(errno, path);
+        assert!(
+            matches!(error, Error::ExchangeUnsupported { .. }),
+            "{errno:?}: {error:?}"
+        );
+    }
+    let error = exchange_error(Errno::ACCESS, path);
+    assert!(matches!(error, Error::StoreIo { .. }), "{error:?}");
 }
