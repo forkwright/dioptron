@@ -13,13 +13,18 @@ all-features = true
 ignore = []
 
 [licenses]
-# WHY only the workspace's own license: the skeleton crates have no
-# external dependencies, and cargo-deny warns on allowances no crate uses.
-# Each implementation slice adds the licenses its new dependencies need
-# (for example MIT, Apache-2.0, BSD-3-Clause, Unicode-3.0), with the
-# dependency that needs them.
+# WHY this list: the workspace's own license plus what current dependencies
+# need; cargo-deny warns on allowances no crate uses. Each implementation
+# slice adds the licenses its new dependencies need, with the dependency
+# that needs them.
+# - MIT, Apache-2.0: the RustCrypto crates, secrecy, zeroize, snafu,
+#   getrandom, tempfile (all dual-licensed MIT OR Apache-2.0).
+# - Unicode-3.0: unicode-ident, via proc-macro2 under snafu-derive.
 allow = [
+    "Apache-2.0",
     "LicenseRef-PolyForm-Noncommercial-1.0.0",
+    "MIT",
+    "Unicode-3.0",
 ]
 confidence-threshold = 0.8
 

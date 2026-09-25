@@ -67,9 +67,25 @@ trivially_copy_pass_by_ref = "warn"
 unused_self = "warn"
 inefficient_to_string = "warn"
 
-# WHY no [workspace.dependencies] yet: the skeleton crates use no external
-# crate. Each implementation slice declares the dependencies it introduces,
-# with its justification, in the same change.
+[workspace.dependencies]
+# WHY one RustCrypto generation: chacha20poly1305 0.11 (aead 0.6), hkdf
+# 0.13, hmac 0.13, and sha2 0.11 all sit on digest 0.11, crypto-common
+# 0.2, and hybrid-array 0.4, so the tree holds one copy of each trait
+# crate (deny.toml bans duplicate versions). ed25519-dalek 3.0 depends on
+# sha2 0.11 and rand_core 0.10, the same generation.
+# WHY `zeroize` features: the cipher, HMAC, and hash states copy key
+# material into their own structs; these features zero that copy on drop.
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "zeroize"] }
+# WHY direct: the one OS random source for keys, salts, and nonces. 0.4 is
+# the version crypto-common 0.2 and ed25519-dalek 3 use.
+getrandom = { version = "0.4", default-features = false }
+hkdf = { version = "0.13", default-features = false }
+hmac = { version = "0.13", features = ["zeroize"] }
+secrecy = "0.10"
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+snafu = "0.9"
+tempfile = "3"
+zeroize = "1.8"
 
 [profile.dev.package."*"]
 opt-level = 2
