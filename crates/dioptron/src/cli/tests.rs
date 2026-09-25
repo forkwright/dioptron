@@ -125,6 +125,17 @@ fn parse_rejects_malformed_command_lines() {
         format!(
             "tenant add --store /s --root-key /k --tenant {TENANT} --class agent --verifying-key {KEY} --uid x"
         ),
+        "init --root-key /k --store --x".to_owned(),
+        "serve --store /s --root-key /k --socket-dir --producer".to_owned(),
+        format!(
+            "tenant add --store /s --root-key /k --tenant {TENANT} --class agent --verifying-key {KEY} --uid 1 --target example.com"
+        ),
+        format!(
+            "tenant add --store /s --root-key /k --tenant {TENANT} --class sub-agent --verifying-key {KEY} --uid 1 --expires-at 5"
+        ),
+        format!(
+            "tenant add --store /s --root-key /k --tenant {TENANT} --class agent --verifying-key {KEY} --uid 1 --max-depth 2"
+        ),
     ];
 
     for case in cases {
@@ -143,6 +154,10 @@ fn parse_key_needs_64_hex_digits() {
 
     assert!(parse_key(&upper).is_ok(), "upper case hex parses");
     assert!(parse_key(&bad_digit).is_err(), "a non-hex digit is refused");
+    assert!(
+        parse_key(&"+0".repeat(32)).is_err(),
+        "a sign is not a hex digit"
+    );
     assert!(
         parse_key(KEY.get(..62).unwrap_or_default()).is_err(),
         "a short key is refused"

@@ -26,9 +26,14 @@ impl Args {
                 }
                 .fail();
             }
-            let value = words.next().context(UsageSnafu {
-                message: format!("{flag} needs a value"),
-            })?;
+            // WHY refuse a value that looks like a flag: `--store --root-key k`
+            // is a missing value, not a store named `--root-key`.
+            let value = words
+                .next()
+                .filter(|value| !value.starts_with("--"))
+                .context(UsageSnafu {
+                    message: format!("{flag} needs a value"),
+                })?;
             let entry = values.entry(flag.clone()).or_default();
             if !entry.is_empty() && !repeatable.contains(&flag.as_str()) {
                 return UsageSnafu {

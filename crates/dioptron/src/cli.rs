@@ -188,6 +188,18 @@ fn parse_tenant_add(flags: &[String]) -> Result<TenantAdd, Error> {
         max_depth: args.optional_parsed("--max-depth")?,
     };
     args.finish()?;
+    let root_grant_flags = add.root_grant.is_some()
+        || !add.targets.is_empty()
+        || add.not_before.is_some()
+        || add.expires_at.is_some()
+        || add.max_depth.is_some();
+    if add.class != TenantClass::Operator && root_grant_flags {
+        return UsageSnafu {
+            message: "only an operator gets a root grant: --root-grant, --target, \
+                      --not-before, --expires-at, and --max-depth need --class operator",
+        }
+        .fail();
+    }
     if add.uids.is_empty() {
         return UsageSnafu {
             message: "tenant add needs at least one --uid",
@@ -241,7 +253,9 @@ fn parse_key(text: &str) -> Result<[u8; 32], Error> {
         }
         .build()
     };
-    if text.len() != 64 {
+    // WHY check every digit first: `from_str_radix` accepts a leading
+    // `+`, so `+f` would parse as a byte.
+    if text.len() != 64 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(bad());
     }
     let mut key = [0_u8; 32];
@@ -290,12 +304,6 @@ pub(crate) fn open_store(
 }
 
 fn tenant_add(add: &TenantAdd) -> Result<(), Error> {
-    if add.class != TenantClass::Operator && add.root_grant.is_some() {
-        return UsageSnafu {
-            message: "only an operator gets a root grant",
-        }
-        .fail();
-    }
     let clock = daemon_clock();
     let store = open_store(&add.store, &add.root_key, Arc::clone(&clock))?;
     let mut registration = TenantRegistration::new(add.tenant, add.class, add.verifying_key);
