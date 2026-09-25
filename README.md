@@ -15,6 +15,32 @@ Three bands across eleven layers, plus a cross-cutting tenancy plane:
 | **Operations** | ops | Active capability surface |
 | **Cross-cutting** | tenancy | Tenant identity, grants, delegation, canonical interface |
 
+## Status
+
+Phase 01 implementation started on 2026-09-25. The Rust workspace under `crates/` holds five crates:
+
+| Crate | Role |
+|-------|------|
+| `syntheke` | Capability contract: wire schema, identifiers, capabilities, outcomes |
+| `epitrope` | Authorization: grant narrowing, validity, budgets |
+| `phylake` | Custody store: encrypted, transactional persistence |
+| `dioptron` | Daemon: orchestrator, producer seam, local socket server |
+| `xenos` | Independent wire client for process-level tests |
+
+The crates are skeletons until their implementation slices land. Web acquisition belongs to [Zetesis](docs/design/zetesis-acquisition-boundary.md), not to this workspace.
+
+## Build
+
+Toolchain 1.97.1 is pinned in `rust-toolchain.toml`. The local gate:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo nextest run --workspace --all-features
+cargo test --workspace --doc --all-features
+cargo deny check
+```
+
 ## Tenancy
 
 Operator and agents are peer users. Every capability exists once, consumed through the same Rust trait surface. The desktop UI is just another client  -  no more privileged than a nous agent making the same calls over a unix socket.
@@ -36,4 +62,7 @@ This is a curated, non-exhaustive start-here list. The
 
 ## License
 
-AGPL-3.0-or-later. See [NOTICE](NOTICE) for supplemental terms.
+- Code and tooling: [PolyForm Noncommercial 1.0.0](LICENSE).
+- Documentation: [CC BY-NC-ND 4.0](LICENSE-DOCS).
+
+See [NOTICE](NOTICE) for supplemental terms.

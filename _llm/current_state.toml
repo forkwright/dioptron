@@ -9,9 +9,13 @@ source_docs = [
 ]
 
 [state]
-summary = "Dioptron is a scaffolded pre-implementation repo with spec v0.5 complete and the render-band foundation decided."
-current_phase = "Pre-implementation specification."
-updated = "2026-08-26"
+summary = "Dioptron started Phase 01 implementation: a five-crate Rust workspace skeleton with cargo CI, on top of spec v0.5 and the decided render-band foundation."
+current_phase = "Phase 01 S2 implementation: authorization and durable capture custody."
+updated = "2026-09-25"
+
+[[recent]]
+date = "2026-09-25"
+item = "Operator decision started the implementation phase; the Rust workspace (syntheke, epitrope, phylake, dioptron, xenos), toolchain pin, cargo-deny policy, and cargo CI landed."
 
 [[recent]]
 date = "2026-08-26"
@@ -26,9 +30,9 @@ date = "2026-04-22"
 item = "NOTICE canonicalized and forge sync timer active."
 
 [[open_threads]]
-name = "Phase 1 slice"
+name = "Phase 01 S2"
 issue = 0
-status = "Likely first slice is D2 net, D5 store, and D12 tenancy core."
+status = "Implementation slices in progress: contract types, authorization, encrypted custody store, invocation lifecycle, Unix-socket wire, and the independent test client."
 
 [[open_threads]]
 name = "script band"

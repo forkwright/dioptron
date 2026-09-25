@@ -11,7 +11,7 @@ source_docs = [
 ]
 
 [architecture]
-summary = "Specification-stage sovereign web runtime where operator and agents share one peer-tenanted capability surface for browsing, ingest, querying, and action."
+summary = "Phase 01 implementation-stage sovereign web runtime where operator and agents share one peer-tenanted capability surface for browsing, ingest, querying, and action."
 layers = [
   "engine-net",
   "engine-render",
@@ -27,9 +27,29 @@ layers = [
 ]
 
 [[architecture.crates]]
-name = "crates"
-path = "crates"
-role = "TBD implementation crates for the 11-layer topology; no Rust code has landed yet."
+name = "syntheke"
+path = "crates/syntheke"
+role = "Capability contract: wire schema, identifiers, capabilities, modes, outcome taxonomy. The only crate consumers link. Skeleton."
+
+[[architecture.crates]]
+name = "epitrope"
+path = "crates/epitrope"
+role = "Authorization without IO: grant narrowing, chain validity with revocations, budgets, invocation transitions, dry-run planning. Skeleton."
+
+[[architecture.crates]]
+name = "phylake"
+path = "crates/phylake"
+role = "D5 custody store: encrypted transactional persistence of grants, invocations, artifacts, and audit. Skeleton."
+
+[[architecture.crates]]
+name = "dioptron"
+path = "crates/dioptron"
+role = "Daemon binary and library: orchestrator, producer seam, local socket server. Contains no HTTP, DNS, or extraction code. Skeleton."
+
+[[architecture.crates]]
+name = "xenos"
+path = "crates/xenos"
+role = "Independent wire client (publish = false) linking only syntheke, for process-level acceptance tests. Skeleton."
 
 [[interfaces]]
 name = "canonical capability trait"

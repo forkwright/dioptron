@@ -1,12 +1,12 @@
 # Dioptron
 
-> Specification-stage sovereign web runtime with agent co-tenancy.
+> Sovereign web runtime with agent co-tenancy, in Phase 01 implementation.
 
-Dioptron defines a local web substrate where operator and AI agents are peer tenants on one capability surface for browsing, ingesting, querying, and acting on the web. No Rust implementation crates have landed yet.
+Dioptron defines a local web substrate where operator and AI agents are peer tenants on one capability surface for browsing, ingesting, querying, and acting on the web. Phase 01 implementation started on 2026-09-25: a Rust workspace under `crates/` holds `syntheke` (capability contract), `epitrope` (authorization), `phylake` (custody store), `dioptron` (daemon), and `xenos` (independent test client), each a skeleton until its implementation slice lands.
 
 ## Surface
 
-The current surface is the design corpus: requirements, topology, tenancy, decisions, training-data taxonomy, lexicon, and open questions.
+The current surface is the design corpus (requirements, topology, tenancy, decisions, training-data taxonomy, lexicon, and open questions) plus the Rust workspace skeleton in `crates/`.
 
 ## Architecture
 
@@ -19,7 +19,8 @@ Structured LLM corpus:
 ## Agent entry points
 
 - [README.md](README.md): overview and documentation map
-- [CLAUDE.md](CLAUDE.md): locked decisions and repo conventions
+- [CLAUDE.md](CLAUDE.md): locked decisions, repo conventions, and the local build gate
+- [AGENTS.md](AGENTS.md): dispatch rules and the Phase 01 crate scope
 - [docs/design/topology.md](docs/design/topology.md): 3-band, 11-layer topology
 - [docs/design/tenancy.md](docs/design/tenancy.md): peer tenant model
 - [docs/design/decisions.md](docs/design/decisions.md): technical decisions
