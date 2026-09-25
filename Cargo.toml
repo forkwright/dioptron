@@ -71,15 +71,17 @@ inefficient_to_string = "warn"
 # with its justification, in the same change.
 [workspace.dependencies]
 # WHY ed25519-dalek 3: tenant authentication is an Ed25519 signature over
-# the syntheke transcript (docs/design/capability-contract.md § Handshake).
-# 3.x sits on sha2 0.11 and rand_core 0.10, the RustCrypto generation the
-# custody crates use, so the tree holds one copy of each trait crate.
-# Default features off: `fast` precomputed tables are not needed for one
-# signature per connection; `zeroize` clears signing keys on drop.
+# the syntheke transcript (docs/design/capability-contract.md § Handshake);
+# the daemon verifies it and xenos signs it. 3.x sits on sha2 0.11 and
+# rand_core 0.10, the RustCrypto generation the custody crates use, so the
+# tree holds one copy of each trait crate. Default features off: `fast`
+# precomputed tables are not needed for one signature per connection;
+# `zeroize` clears signing keys on drop.
 ed25519-dalek = { version = "3.0", default-features = false, features = ["zeroize"] }
-# WHY direct: the one OS random source for handshake nonces, keys, salts,
-# and sealing nonces. 0.4 is the version crypto-common 0.2 and
-# ed25519-dalek 3 use.
+# WHY direct: the one OS random source for handshake nonces, the daemon's
+# dummy verifying key, and the custody store's keys, salts, and sealing
+# nonces. 0.4 is the version crypto-common 0.2 and ed25519-dalek 3 use;
+# called directly so a failure is a visible error.
 getrandom = { version = "0.4", default-features = false }
 # WHY rkyv: docs/design/topology.md fixes rkyv as the wire format; 0.8 with
 # bytecheck validates an archive before any field is read. The format
@@ -100,7 +102,10 @@ syntheke = { path = "crates/syntheke", version = "0.1.6" }
 snafu = "0.9.2"
 # WHY tempfile (dev only): tests that bind a unix socket path or write key
 # and store files create them in a fresh temporary directory.
-tempfile = "3"
+tempfile = "3.27"
+# WHY tokio: the daemon's async runtime and Unix socket server. The
+# workspace entry enables no features; each crate names what it uses.
+tokio = { version = "1.53", default-features = false }
 # WHY toml (dev only): the contract fixtures are TOML files that the
 # syntheke conformance test parses.
 toml = "1.1.6"
@@ -123,8 +128,10 @@ hmac = { version = "0.13", features = ["zeroize"] }
 # reading the effective uid need flags and a syscall that std exposes only
 # through raw `libc` constants or unsafe calls. rustix wraps both in safe
 # functions and is already in the lock file (tempfile depends on it), so it
-# adds no new crate version.
-rustix = { version = "1.1", default-features = false, features = ["std", "fs", "process"] }
+# adds no new crate version. The daemon's tests also use it (dev only) to
+# send a signal to the test process, and store compaction uses its
+# `renameat_with(RENAME_EXCHANGE)` to swap store directories atomically.
+rustix = { version = "1.1.5", default-features = false, features = ["std", "fs", "process"] }
 secrecy = "0.10"
 sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
 zeroize = "1.8"
@@ -137,6 +144,9 @@ fjall = { version = "3.1", default-features = false }
 # WHY epitrope: phylake runs epitrope's transition table, reservation
 # arithmetic, and recovery rules inside its transactions.
 epitrope = { path = "crates/epitrope", version = "0.1.6" }
+# WHY tracing: structured spans per connection and request (fleet standard
+# for diagnostics).
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
 [profile.dev.package."*"]
 opt-level = 2
