@@ -141,6 +141,23 @@ pub enum Error {
         location: snafu::Location,
     },
 
+    /// A body passed archive validation but is not the canonical encoding
+    /// of the value it decodes to: it carries leading, trailing, or
+    /// unreferenced bytes, or lays out the archive differently than the
+    /// encoder would.
+    #[snafu(display(
+        "frame body of {len} bytes is not the canonical {canonical_len}-byte encoding of its value"
+    ))]
+    NonCanonical {
+        /// Length of the received body.
+        len: u64,
+        /// Length of the canonical encoding of the decoded value.
+        canonical_len: u64,
+        /// Where the error was raised.
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
     /// A message could not be serialized.
     #[snafu(display("message serialization failed"))]
     Encode {
