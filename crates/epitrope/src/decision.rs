@@ -69,7 +69,7 @@ impl Decision {
     pub const fn refusal(&self) -> Option<Failure> {
         match self {
             Self::Allowed { .. } => None,
-            Self::Denied { code } => Some(Failure::Denied { code: *code }),
+            Self::Denied { code } => Some(Failure::denied(*code)),
             Self::BudgetExceeded { dimension } => Some(Failure::BudgetExceeded {
                 dimension: *dimension,
             }),
@@ -112,7 +112,9 @@ impl Decision {
 /// 5. A `Capture` names a target, and every link's target scope admits its
 ///    origin (`ScopeViolation`, also for a target that does not parse).
 /// 6. Every ledger (each chain grant, the session, the tenant) covers the
-///    declared cost ([`plan_reservation`]).
+///    declared cost ([`plan_reservation`]): exhaustion on one of the
+///    caller's own ledgers is [`Decision::BudgetExceeded`], on any other
+///    ledger `BudgetUnavailable`, which names no dimension.
 ///
 /// # Errors
 ///
@@ -124,7 +126,7 @@ pub fn authorize(
     clock: &dyn Clock,
 ) -> Result<Decision, Error> {
     let leaf = match view.grant(request.grant).context(ViewSnafu)? {
-        Some(grant) if grant.holder == request.tenant => grant,
+        Some(grant) if grant.id == request.grant && grant.holder == request.tenant => grant,
         _ => return Ok(Decision::NotFoundOrDenied),
     };
     let chain = match check_chain(view, leaf, clock.now())? {
@@ -161,7 +163,7 @@ pub fn authorize(
             Decision::BudgetExceeded { dimension }
         }
         BudgetCheck::Exceeded(_) => Decision::Denied {
-            code: DenyCode::CapabilityNotGranted,
+            code: DenyCode::BudgetUnavailable,
         },
     })
 }

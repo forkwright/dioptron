@@ -36,10 +36,13 @@ pub enum ChainStatus {
 /// # Errors
 ///
 /// [`Error::View`] when a read fails; [`Error::ChainBroken`] when a parent
-/// is missing; [`Error::ChainMalformed`] when a link's depth is not its
-/// parent's plus one, a root's depth is not zero, or a link's issuer is not
-/// its parent's holder. Depth strictly decreases, so the walk ends within
-/// 256 links.
+/// is missing; [`Error::ChainMalformed`] when the view answers a parent
+/// lookup with another grant, a link's depth is not its parent's plus one
+/// or reaches its parent's maximum depth, a link raises its parent's
+/// maximum depth, a root's depth is not zero, or a link's issuer is not its
+/// parent's holder. The walk re-checks at every read what issue-time
+/// narrowing already enforced, so a corrupt record fails closed. Depth
+/// strictly decreases, so the walk ends within 256 links.
 pub fn check_chain(
     view: &dyn GrantView,
     leaf: Grant,
@@ -77,7 +80,11 @@ fn load_chain(view: &dyn GrantView, leaf: Grant) -> Result<Vec<Grant>, Error> {
             .context(ViewSnafu)?
             .context(ChainBrokenSnafu { grant: parent_id })?;
         ensure!(
-            parent.depth.checked_add(1) == Some(current.depth) && current.issuer == parent.holder,
+            parent.id == parent_id
+                && parent.depth.checked_add(1) == Some(current.depth)
+                && current.depth < parent.max_depth
+                && current.max_depth <= parent.max_depth
+                && current.issuer == parent.holder,
             ChainMalformedSnafu { grant: current.id }
         );
         chain.push(current);

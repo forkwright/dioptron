@@ -115,9 +115,10 @@ fn plan_reservation_withholds_upstream_dimension() -> Result<(), Error> {
     assert_eq!(
         BudgetRefusal::Upstream.failure(),
         Failure::Denied {
-            code: syntheke::DenyCode::CapabilityNotGranted
+            code: syntheke::DenyCode::BudgetUnavailable,
+            axis: None,
         },
-        "upstream reads as the chain not conferring the call"
+        "upstream is BudgetUnavailable, with no dimension"
     );
     Ok(())
 }

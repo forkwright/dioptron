@@ -125,10 +125,8 @@ impl IssueDecision {
         match self {
             Self::Issued(_) => None,
             Self::NotFoundOrDenied => Some(syntheke::Failure::NotFoundOrDenied),
-            Self::Denied { code } => Some(syntheke::Failure::Denied { code: *code }),
-            Self::Narrowing { .. } => Some(syntheke::Failure::Denied {
-                code: DenyCode::NarrowingViolation,
-            }),
+            Self::Denied { code } => Some(syntheke::Failure::denied(*code)),
+            Self::Narrowing { axis } => Some(syntheke::Failure::narrowing(*axis)),
         }
     }
 }
@@ -157,7 +155,8 @@ pub struct IssueContext {
 ///
 /// The child's audit scope is `OwnAndOwnedSessions`: contract version 1
 /// carries no audit scope in a grant request, so a delegated grant never
-/// carries `All`.
+/// carries `All`. [`narrowing_violation`] still checks it
+/// ([`NarrowingAxis::AuditScope`]) for grants built any other way.
 ///
 /// # Errors
 ///
@@ -176,7 +175,7 @@ pub fn check_issue(
         child,
     } = *context;
     let parent = match view.grant(designated).context(ViewSnafu)? {
-        Some(parent) if parent.holder == issuer => parent,
+        Some(parent) if parent.id == designated && parent.holder == issuer => parent,
         _ => return Ok(IssueDecision::NotFoundOrDenied),
     };
     let chain = match check_chain(view, parent, clock.now())? {
@@ -233,11 +232,11 @@ pub fn check_issue(
 /// The first axis on which `child` fails to attenuate `parent`, or `None`
 /// when it attenuates on every axis.
 ///
-/// Axes are checked in the order capabilities, session scope, target
-/// scope, ceilings, expiry, depth, issuer authority:
+/// Axes are checked in the order capabilities, audit scope, session scope,
+/// target scope, ceilings, expiry, depth, issuer authority:
 ///
-/// - capabilities: a subset of the parent's; the audit scope is at most the
-///   parent's;
+/// - capabilities: a subset of the parent's;
+/// - audit scope: at most the parent's ([`audit_scope_within`]);
 /// - session scope: `Own` under `Own` only when the child's holder is in the
 ///   parent holder's lineage; an explicit set under `Own` only when every
 ///   session exists and its owner is in the parent holder's lineage; an
@@ -263,11 +262,14 @@ pub fn narrowing_violation(
     parent_used: &Cost,
     child: &Grant,
 ) -> Result<Option<NarrowingAxis>, Error> {
-    let checks: [(NarrowingAxis, bool); 7] = [
+    let checks: [(NarrowingAxis, bool); 8] = [
         (
             NarrowingAxis::Capabilities,
-            child.capabilities.is_subset(&parent.capabilities)
-                && audit_scope_within(child.audit_scope, parent.audit_scope),
+            child.capabilities.is_subset(&parent.capabilities),
+        ),
+        (
+            NarrowingAxis::AuditScope,
+            audit_scope_within(child.audit_scope, parent.audit_scope),
         ),
         (
             NarrowingAxis::SessionScope,

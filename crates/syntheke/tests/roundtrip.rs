@@ -15,9 +15,9 @@ mod tests {
         ClientHello, Cost, DEFAULT_MAX_BODY, DenyCode, Dimension, EgressPolicy, Error,
         ExtractionClass, Failure, Fault, FrameHeader, FrameKind, GrantId, GrantIssueRequest,
         GrantIssued, GrantRevokeRequest, GrantRevoked, HEADER_LEN, IdempotencyKey, IngestReceipt,
-        IngestRequest, InvocationId, InvocationState, Message, Mode, Nonce, OutcomeKind,
-        PRE_AUTH_MAX_BODY, Plan, QueryPage, QueryRequest, ReadChunk, ReadRequest, Request,
-        RequestBody, Response, ResponseBody, ServerHello, SessionForkRequest, SessionId,
+        IngestRequest, InvocationId, InvocationState, Message, Mode, NarrowingAxis, Nonce,
+        OutcomeKind, PRE_AUTH_MAX_BODY, Plan, QueryPage, QueryRequest, ReadChunk, ReadRequest,
+        Request, RequestBody, Response, ResponseBody, ServerHello, SessionForkRequest, SessionId,
         SessionOpened, SessionScope, SourceRef, TenantId, Timestamp, TransferClass, VersionChoice,
         decode, decode_frame, encode, encode_frame,
     };
@@ -116,7 +116,17 @@ mod tests {
             Failure::UnknownEffect,
             Failure::IdempotencyConflict,
         ];
-        failures.extend(DenyCode::ALL.iter().map(|&code| Failure::Denied { code }));
+        failures.extend(
+            DenyCode::ALL
+                .iter()
+                .filter(|&&code| code != DenyCode::NarrowingViolation)
+                .map(|&code| Failure::denied(code)),
+        );
+        failures.extend(
+            NarrowingAxis::ALL
+                .iter()
+                .map(|&axis| Failure::narrowing(axis)),
+        );
         failures.extend(
             Dimension::ALL
                 .iter()
@@ -200,11 +210,9 @@ mod tests {
                     output_bytes: 32_768,
                     ..Cost::default()
                 },
-                grant_chain: vec![GrantId::from_bytes(id(6)), GrantId::from_bytes(id(3))],
+                grant_chain: Vec::new(),
                 rule_chain: Vec::new(),
-                refusal: Some(Failure::Denied {
-                    code: DenyCode::ScopeViolation,
-                }),
+                refusal: Some(Failure::denied(DenyCode::ScopeViolation)),
             }),
             ResponseBody::InProgress,
         ];
@@ -312,6 +320,48 @@ mod tests {
                 matches!(decoded, Err(Error::FaultNotConnectionLevel { .. })),
                 "{failure:?} in a fault frame is refused on receipt, got {decoded:?}"
             );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn response_refuses_a_denial_whose_axis_does_not_match_its_code() -> TestResult {
+        let malformed = [
+            Failure::Denied {
+                code: DenyCode::NarrowingViolation,
+                axis: None,
+            },
+            Failure::Denied {
+                code: DenyCode::ScopeViolation,
+                axis: Some(NarrowingAxis::TargetScope),
+            },
+        ];
+        for failure in malformed {
+            let plan = Plan {
+                capability: Capability::GrantIssue,
+                cost: Cost::default(),
+                grant_chain: Vec::new(),
+                rule_chain: Vec::new(),
+                refusal: Some(failure),
+            };
+            for body in [ResponseBody::Failed(failure), ResponseBody::Plan(plan)] {
+                let response = Response {
+                    request_id: 4,
+                    invocation: None,
+                    body,
+                };
+                let encoded = encode(&response);
+                assert!(
+                    matches!(encoded, Err(Error::DeniedAxisMismatch { .. })),
+                    "{failure:?} is not sent, got {encoded:?}"
+                );
+                let raw = rkyv::to_bytes::<rancor::Error>(&response)?;
+                let decoded = decode::<Response>(&raw, DEFAULT_MAX_BODY);
+                assert!(
+                    matches!(decoded, Err(Error::DeniedAxisMismatch { .. })),
+                    "{failure:?} is refused on receipt, got {decoded:?}"
+                );
+            }
         }
         Ok(())
     }
