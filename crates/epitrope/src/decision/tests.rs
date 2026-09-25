@@ -4,7 +4,7 @@ use super::*;
 use crate::clock::FixedClock;
 use crate::test_support::{
     AGENT, CHILD_EXPIRES, FOREIGN, G_AGENT, G_FOREIGN, G_MISSING, G_ROOT, G_SUB, MemView, NOW,
-    S_AGENT, S_FOREIGN, S_MISSING, S_OPERATOR, SUB,
+    S_AGENT, S_FOREIGN, S_MISSING, S_OPERATOR, SUB, sub_grant,
 };
 
 const TARGET: &str = "https://example.com/article";
@@ -103,6 +103,40 @@ fn authorize_answers_foreign_and_missing_grants_identically() -> Result<(), Erro
     assert_eq!(
         own_grant_other_tenant, missing,
         "holding some grant does not unlock another tenant's"
+    );
+    let foreign_plan = plan(
+        &view,
+        &AuthzRequest {
+            tenant: FOREIGN,
+            ..capture()
+        },
+        &FixedClock(NOW),
+    )?;
+    let missing_plan = plan(
+        &view,
+        &AuthzRequest {
+            tenant: FOREIGN,
+            grant: G_MISSING,
+            ..capture()
+        },
+        &FixedClock(NOW),
+    )?;
+    assert_eq!(
+        foreign_plan, missing_plan,
+        "dry-run plans are identical too"
+    );
+    let mut misfiled = cast();
+    misfiled.grants.insert(G_MISSING, sub_grant());
+    assert_eq!(
+        decide(
+            &misfiled,
+            &AuthzRequest {
+                grant: G_MISSING,
+                ..capture()
+            }
+        )?,
+        missing,
+        "a view answer for a different grant id is not the designated grant"
     );
     Ok(())
 }
@@ -300,7 +334,7 @@ fn authorize_reports_budget_on_own_ledgers_only() -> Result<(), Error> {
     let upstream = decide(&parent_spent, &capture())?;
     assert_eq!(
         upstream,
-        denied(DenyCode::CapabilityNotGranted),
+        denied(DenyCode::BudgetUnavailable),
         "a parent's exhaustion names no dimension"
     );
     let mut session_capped = cast();
@@ -388,9 +422,23 @@ fn refusal_maps_every_decision_to_its_failure() -> Result<(), Error> {
     assert_eq!(
         denied(DenyCode::ScopeViolation).refusal(),
         Some(Failure::Denied {
-            code: DenyCode::ScopeViolation
+            code: DenyCode::ScopeViolation,
+            axis: None,
         }),
         "denied"
+    );
+    assert_eq!(
+        denied(DenyCode::BudgetUnavailable).refusal(),
+        Some(Failure::Denied {
+            code: DenyCode::BudgetUnavailable,
+            axis: None,
+        }),
+        "an upstream budget denial names no dimension"
+    );
+    assert_eq!(
+        Decision::NotFoundOrDenied.refusal(),
+        Some(Failure::NotFoundOrDenied),
+        "not found or denied"
     );
     assert_eq!(
         Decision::BudgetExceeded {
@@ -440,7 +488,8 @@ fn plan_reports_the_refusal_of_a_call_that_would_be_denied() -> Result<(), Error
     assert_eq!(
         refused.refusal,
         Some(Failure::Denied {
-            code: DenyCode::GrantRevoked
+            code: DenyCode::GrantRevoked,
+            axis: None,
         }),
         "the execute would be refused"
     );

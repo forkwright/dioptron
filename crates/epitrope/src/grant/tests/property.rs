@@ -1,5 +1,6 @@
-//! Property: a child that passes the narrowing check is never broader than
-//! its parent on any axis.
+//! Property: a child passes the narrowing check exactly when it is not
+//! broader than its parent on any axis. A passing child is never broader,
+//! and a refused child is broader on some axis.
 //!
 //! The expected relations are recomputed here from first principles (a
 //! fixed tenant lineage table, admitted-session and admitted-origin
@@ -34,7 +35,9 @@ const PATTERNS: [&str; 12] = [
     "http://a.example.org",
 ];
 
-const ORIGINS: [&str; 12] = [
+const ORIGINS: [&str; 14] = [
+    "https://b.example.org/",
+    "https://example.org:8080/",
     "https://example.com/",
     "http://example.com/",
     "https://example.com:8080/",
@@ -248,7 +251,7 @@ fn assert_not_broader(parent: &Grant, used: &Cost, child: &Grant) -> Result<(), 
 }
 
 #[test]
-fn narrowing_violation_never_passes_a_broader_child() {
+fn narrowing_violation_refuses_exactly_the_broader_children() {
     let view = MemView::cast();
     let parent = agent_grant();
     let passed = Cell::new(0_u32);
@@ -268,12 +271,20 @@ fn narrowing_violation_never_passes_a_broader_child() {
         };
         let verdict = narrowing_violation(&view, &parent, &used, &child)
             .map_err(|e| TestCaseError::fail(e.to_string()))?;
-        if verdict.is_some() {
+        let independent = assert_not_broader(&parent, &used, &child);
+        if let Some(axis) = verdict {
             refused.set(refused.get().saturating_add(1));
+            // WHY both directions: a check that refused too much would pass
+            // the soundness half alone; the sample universes are chosen so
+            // every broader child has a witness.
+            prop_assert!(
+                independent.is_err(),
+                "refused on {axis} a child the independent statement finds not broader"
+            );
             return Ok(());
         }
         passed.set(passed.get().saturating_add(1));
-        assert_not_broader(&parent, &used, &child)
+        independent
     });
     assert!(result.is_ok(), "property failed: {result:?}");
     assert!(

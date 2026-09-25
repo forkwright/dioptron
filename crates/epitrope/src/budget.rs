@@ -6,7 +6,7 @@
 //! releases the rest. All arithmetic is checked.
 
 use snafu::OptionExt as _;
-use syntheke::{Ceilings, Cost, Dimension, Failure};
+use syntheke::{Ceilings, Cost, DenyCode, Dimension, Failure};
 
 use crate::error::{Error, LedgerOverflowSnafu, LedgerUnderflowSnafu, SettleOverrunSnafu};
 use crate::view::LedgerId;
@@ -73,17 +73,14 @@ pub enum BudgetRefusal {
 impl BudgetRefusal {
     /// The failure the caller observes.
     ///
-    /// WHY `Denied{CapabilityNotGranted}` for an upstream ledger: the
-    /// contract lets `BudgetExceeded` name a dimension only on the caller's
-    /// own ledgers, and contract version 1 has no budget deny code, so an
-    /// ancestor's exhaustion reads as the chain not conferring this call.
+    /// WHY `Denied{BudgetUnavailable}` for an upstream ledger: the contract
+    /// lets `BudgetExceeded` name a dimension only on the caller's own
+    /// ledgers, so exhaustion anywhere else is a denial with no dimension.
     #[must_use]
     pub const fn failure(self) -> Failure {
         match self {
             Self::Own { dimension, .. } => Failure::BudgetExceeded { dimension },
-            Self::Upstream => Failure::Denied {
-                code: syntheke::DenyCode::CapabilityNotGranted,
-            },
+            Self::Upstream => Failure::denied(DenyCode::BudgetUnavailable),
         }
     }
 }

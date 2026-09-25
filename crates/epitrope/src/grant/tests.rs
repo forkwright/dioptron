@@ -197,9 +197,10 @@ fn check_issue_refuses_each_axis() -> Result<(), Error> {
         assert_eq!(
             decision.refusal(),
             Some(Failure::Denied {
-                code: DenyCode::NarrowingViolation
+                code: DenyCode::NarrowingViolation,
+                axis: Some(axis),
             }),
-            "{why} is a narrowing violation on the wire"
+            "{why} is a narrowing violation naming its axis on the wire"
         );
     }
     Ok(())
@@ -269,6 +270,18 @@ fn check_issue_answers_foreign_and_missing_parents_identically() -> Result<(), E
         Some(Failure::NotFoundOrDenied),
         "one outcome on the wire"
     );
+    let mut misfiled = MemView::cast();
+    misfiled.grants.insert(G_MISSING, agent_grant());
+    assert_eq!(
+        check_issue(
+            &misfiled,
+            &context(AGENT, G_MISSING),
+            &valid_request(),
+            &clock
+        )?,
+        missing,
+        "a view answer for a different grant id is not the designated parent"
+    );
     Ok(())
 }
 
@@ -287,9 +300,10 @@ fn check_issue_denies_under_a_revoked_or_expired_chain() -> Result<(), Error> {
     assert_eq!(
         decision.refusal(),
         Some(Failure::Denied {
-            code: DenyCode::GrantRevoked
+            code: DenyCode::GrantRevoked,
+            axis: None,
         }),
-        "revocation code on the wire"
+        "revocation code on the wire, with no axis"
     );
     let expired = check_issue(
         &MemView::cast(),
@@ -400,7 +414,7 @@ fn narrowing_violation_refuses_wider_scopes_and_windows() -> Result<(), Error> {
                 audit_scope: AuditScope::All,
                 ..base.clone()
             },
-            NarrowingAxis::Capabilities,
+            NarrowingAxis::AuditScope,
         ),
         (
             "a start before the parent's",

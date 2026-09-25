@@ -1,7 +1,7 @@
 use super::*;
 use crate::test_support::{
-    AGENT, CHILD_EXPIRES, G_AGENT, G_ROOT, G_SUB, MemView, NOW, OPERATOR, agent_grant, root_grant,
-    sub_grant, ts,
+    AGENT, CHILD_EXPIRES, G_AGENT, G_ROOT, G_SUB, MemView, NOW, OPERATOR, agent_grant,
+    foreign_grant, root_grant, sub_grant, ts,
 };
 
 fn walk(view: &MemView, now: Timestamp) -> Result<ChainStatus, Error> {
@@ -151,13 +151,51 @@ fn check_chain_errors_on_malformed_links() {
     if let Some(grant) = root.grants.get_mut(&G_ROOT) {
         grant.depth = 1;
     }
+    let mut at_maximum = MemView::cast();
+    if let Some(agent) = at_maximum.grants.get_mut(&G_AGENT) {
+        agent.max_depth = 2;
+    }
+    let mut raised = MemView::cast();
+    if let Some(agent) = raised.grants.get_mut(&G_AGENT) {
+        agent.max_depth = 3;
+    }
+    let mut misfiled = MemView::cast();
+    misfiled.grants.insert(G_AGENT, foreign_grant());
+    let sub = sub_grant();
+    let sub_at_two = Grant {
+        max_depth: 2,
+        ..sub_grant()
+    };
     let cases = [
-        (depth, G_SUB, "child depth is not parent depth plus one"),
-        (issuer, G_SUB, "child issuer is not the parent's holder"),
-        (root, G_AGENT, "root depth is not zero"),
+        (
+            depth,
+            &sub,
+            G_SUB,
+            "child depth is not parent depth plus one",
+        ),
+        (
+            issuer,
+            &sub,
+            G_SUB,
+            "child issuer is not the parent's holder",
+        ),
+        (root, &sub, G_AGENT, "root depth is not zero"),
+        (
+            at_maximum,
+            &sub_at_two,
+            G_SUB,
+            "child depth reaches the parent's maximum",
+        ),
+        (
+            raised,
+            &sub,
+            G_SUB,
+            "child raises the parent's maximum depth",
+        ),
+        (misfiled, &sub, G_SUB, "the view answers with another grant"),
     ];
-    for (view, at, why) in cases {
-        let result = walk(&view, NOW);
+    for (view, leaf, at, why) in cases {
+        let result = check_chain(&view, leaf.clone(), NOW);
         assert!(
             matches!(result, Err(Error::ChainMalformed { grant, .. }) if grant == at),
             "{why}, got {result:?}"
