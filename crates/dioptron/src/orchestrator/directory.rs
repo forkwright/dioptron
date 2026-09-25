@@ -4,8 +4,10 @@
 //! Each runs outside the capture lifecycle, in this order:
 //!
 //! 1. A key already bound to another request is `IdempotencyConflict`; a
-//!    key bound to this request replays the first attempt's result when
-//!    that result is stored.
+//!    key bound to this request re-authorizes the designated chain and
+//!    then replays the first attempt's result when that result is stored.
+//!    A chain that no longer authorizes the call is refused with the
+//!    current reason, as a fresh call would be.
 //! 2. The call is authorized under its designated grant over a snapshot;
 //!    a refusal commits a `Denied` audit entry and binds nothing.
 //! 3. The key is bound ([`phylake::Store::claim`]) to a fresh invocation
@@ -100,6 +102,9 @@ impl<P: Producer> Inner<P> {
         match self.prior(call, capability, key)? {
             Err(reply) => return Ok(reply),
             Ok(Prior::Replay(invocation)) => {
+                if let Some(failure) = self.replay_refusal(call, capability)? {
+                    return self.deny(call, capability, parent, failure);
+                }
                 if let Some(reply) = self.stored_session(call, invocation, parent)? {
                     return Ok(reply);
                 }
@@ -165,6 +170,9 @@ impl<P: Producer> Inner<P> {
         match self.prior(call, capability, key)? {
             Err(reply) => return Ok(reply),
             Ok(Prior::Replay(invocation)) => {
+                if let Some(failure) = self.replay_refusal(call, capability)? {
+                    return self.deny(call, capability, None, failure);
+                }
                 let child = GrantId::from_bytes(invocation.to_bytes());
                 if self
                     .store
@@ -240,6 +248,9 @@ impl<P: Producer> Inner<P> {
         match self.prior(call, capability, key)? {
             Err(reply) => return Ok(reply),
             Ok(Prior::Replay(invocation)) => {
+                if let Some(failure) = self.replay_refusal(call, capability)? {
+                    return self.deny(call, capability, None, failure);
+                }
                 let existing = self
                     .store
                     .snapshot()

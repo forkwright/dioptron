@@ -5,9 +5,10 @@
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
-use epitrope::{Clock, FixedClock};
+use epitrope::Clock;
 use phylake::keyfile::RootKey;
 use phylake::store::{NewSession, RootGrant, TenantRegistration};
 use phylake::{Store, StoreOptions};
@@ -93,9 +94,28 @@ fn producer() -> FixtureProducer {
         )
 }
 
+/// A wall clock a test moves by hand; the store and the orchestrator
+/// share it.
+#[derive(Debug)]
+pub(super) struct StepClock(AtomicI64);
+
+impl StepClock {
+    /// Sets the time to `millis` since the Unix epoch.
+    pub(super) fn set(&self, millis: i64) {
+        self.0.store(millis, Ordering::SeqCst);
+    }
+}
+
+impl Clock for StepClock {
+    fn now(&self) -> Timestamp {
+        Timestamp::from_unix_millis(self.0.load(Ordering::SeqCst))
+    }
+}
+
 /// A store, an orchestrator over it, and the fixture producer's handle.
 pub(super) struct Rig {
     _dir: tempfile::TempDir,
+    pub(super) clock: Arc<StepClock>,
     pub(super) store: Arc<Store>,
     pub(super) producer: Arc<FixtureProducer>,
     pub(super) orchestrator: Orchestrator<Arc<FixtureProducer>>,
@@ -108,7 +128,8 @@ impl Rig {
     /// an agent child tenant; the operator owns `SESSION`.
     pub(super) fn new() -> Self {
         let dir = tempfile::tempdir().expect("tempdir");
-        let clock: Arc<dyn Clock + Send + Sync> = Arc::new(FixedClock(NOW));
+        let step = Arc::new(StepClock(AtomicI64::new(NOW.unix_millis())));
+        let clock: Arc<dyn Clock + Send + Sync> = step.clone();
         let root = RootKey::generate(&dir.path().join("root.key")).expect("root key");
         let store = StoreOptions::new(dir.path().join("store"), Arc::clone(&clock))
             .create(&root)
@@ -146,6 +167,7 @@ impl Rig {
             Orchestrator::new(Arc::clone(&store), Arc::clone(&producer), clock);
         Self {
             _dir: dir,
+            clock: step,
             store,
             producer,
             orchestrator,
@@ -207,25 +229,64 @@ impl Rig {
     /// Issues a child of the root grant to the agent over the operator's
     /// session scope.
     pub(super) async fn agent_grant(&self, capabilities: Vec<Capability>) -> GrantId {
-        let issue = GrantIssueRequest {
-            holder: AGENT,
-            capabilities,
-            session_scope: SessionScope::Own,
-            target_scope: vec!["example.com".to_owned()],
-            ceilings: Ceilings::default(),
-            not_before: Timestamp::from_unix_millis(0),
-            expires_at: Timestamp::from_unix_millis(8_000_000),
-            max_depth: None,
-        };
+        self.issue(child(AGENT, capabilities), "issue-agent-grant")
+            .await
+    }
+
+    /// Issues `issue` under the root grant as the operator.
+    pub(super) async fn issue(&self, issue: GrantIssueRequest, key: &str) -> GrantId {
         let request = self.request(
             ROOT,
-            Some("issue-agent-grant"),
+            Some(key),
             Mode::Execute,
             RequestBody::GrantIssue(issue),
         );
         match self.call(OPERATOR, request).await.body {
             ResponseBody::GrantIssued(issued) => issued.grant,
-            other => panic!("agent grant not issued: {other:?}"),
+            other => panic!("grant not issued: {other:?}"),
+        }
+    }
+
+    /// Revokes `target` under the root grant as the operator.
+    pub(super) async fn revoke(&self, target: GrantId, key: &str) {
+        let request = self.request(
+            ROOT,
+            Some(key),
+            Mode::Execute,
+            RequestBody::GrantRevoke(syntheke::GrantRevokeRequest {
+                target_grant: target,
+            }),
+        );
+        let response = self.call(OPERATOR, request).await;
+        assert!(
+            matches!(response.body, ResponseBody::GrantRevoked(_)),
+            "revocation failed: {response:?}"
+        );
+    }
+}
+
+/// A child grant request for `holder` over its own sessions on
+/// example.com, valid from the epoch to 8 000 000 ms.
+pub(super) fn child(holder: TenantId, capabilities: Vec<Capability>) -> GrantIssueRequest {
+    GrantIssueRequest {
+        holder,
+        capabilities,
+        session_scope: SessionScope::Own,
+        target_scope: vec!["example.com".to_owned()],
+        ceilings: Ceilings::default(),
+        not_before: Timestamp::from_unix_millis(0),
+        expires_at: Timestamp::from_unix_millis(8_000_000),
+        max_depth: None,
+    }
+}
+
+impl Rig {
+    /// Opens a session for the agent under `grant`.
+    pub(super) async fn agent_session(&self, grant: GrantId, key: &str) -> SessionId {
+        let request = self.request(grant, Some(key), Mode::Execute, RequestBody::SessionCreate);
+        match self.call(AGENT, request).await.body {
+            ResponseBody::SessionOpened(opened) => opened.session,
+            other => panic!("agent session not opened: {other:?}"),
         }
     }
 }

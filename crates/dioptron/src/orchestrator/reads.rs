@@ -1,10 +1,11 @@
 //! `Read`, `Query`, `AuditQuery`, and `Ingest` (contract § Read scopes,
 //! § Query and read results, § Audit partitions).
 //!
-//! Each authorizes the session it touches under the designated grant
+//! Each read authorizes the session it touches under the designated grant
 //! before it reads, and each reply fits the connection's frame bound:
 //! `Read` returns at most one frame's worth of the envelope per chunk, and
-//! the pages are cut to what one frame holds.
+//! the pages are cut to what one frame holds. `Ingest` is refused at
+//! authorization as `NotSupported`.
 
 use epitrope::{GrantView as _, applied_audit_scope};
 use phylake::store::{AuditNote, AuditOutcome, AuditQuery};
@@ -161,6 +162,8 @@ impl<P: Producer> Inner<P> {
             AuditOutcome::Completed(None),
         );
         note.session = session;
+        note.grant = Some(call.grant);
+        note.audit_scope = Some(scope);
         self.store.record_audit(&note).context(StoreSnafu)?;
         let next_after = if more {
             records.last().map(|record| record.seq)
@@ -187,32 +190,30 @@ impl<P: Producer> Inner<P> {
         Ok(applied_audit_scope(requested, granted))
     }
 
-    /// `Ingest`: authorized like a read of the artifact. No knowledge
-    /// pipeline (D7) exists in Phase 01, so an authorized ingest binds its
-    /// key and answers `ProducerUnavailable`: nothing accepted it.
-    pub(super) fn ingest(&self, call: &Call, artifact: ArtifactRef) -> Result<Reply, Error> {
-        let capability = Capability::Ingest;
-        let Some(key) = &call.key else {
-            return Ok(Reply::failed(Failure::ProtocolError));
-        };
-        if let Err(reply) = self.prior(call, capability, key)? {
-            return Ok(reply);
+    /// The decision for an `Ingest`: the designated-grant, chain, and
+    /// capability checks, then `NotSupported` until the knowledge pipeline
+    /// (D7) lands. The named artifact is never read, so a missing, a
+    /// foreign, and an own artifact get the same answer.
+    pub(super) fn ingest_plan(&self, call: &Call) -> Result<Plan, Error> {
+        let authz = Self::authz(call, Capability::Ingest, None, None, Cost::default());
+        let mut plan = self.decide(&authz)?;
+        if plan.refusal.is_none() {
+            // WHY: a build whose authorizer served Ingest would still have
+            // no pipeline here; refusing is the closed side.
+            plan.refusal = Some(Failure::denied(DenyCode::NotSupported));
+            plan.grant_chain.clear();
         }
-        if let Some(failure) = self.artifact_plan(call, capability, artifact)?.refusal {
-            return self.deny(call, capability, None, failure);
-        }
-        let invocation = match self.bind(call, capability, key)? {
-            Ok(invocation) => invocation,
-            Err(reply) => return Ok(reply),
-        };
-        let failure = Failure::ProducerUnavailable;
-        let note = AuditNote::new(
-            call.tenant,
-            invocation,
-            capability,
-            AuditOutcome::Completed(Some(failure)),
-        );
-        self.store.record_audit(&note).context(StoreSnafu)?;
-        Ok(Reply::of(invocation, ResponseBody::Failed(failure)))
+        Ok(plan)
+    }
+
+    /// `Ingest`: refused at authorization. The refusal's `Denied` audit
+    /// entry is the only write; no idempotency key is bound and nothing is
+    /// reserved.
+    pub(super) fn ingest(&self, call: &Call) -> Result<Reply, Error> {
+        let failure = self
+            .ingest_plan(call)?
+            .refusal
+            .unwrap_or(Failure::denied(DenyCode::NotSupported));
+        self.deny(call, Capability::Ingest, None, failure)
     }
 }

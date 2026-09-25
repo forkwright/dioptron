@@ -7,8 +7,8 @@ use std::sync::Arc;
 use phylake::store::Terminal;
 use syntheke::{
     AuditQueryRequest, AuditScope, Capability, DenyCode, ExtractionClass, Failure,
-    GrantRevokeRequest, IngestRequest, InvocationState, Mode, ReadRequest, ReleaseReason, Request,
-    RequestBody, Response, ResponseBody, Timestamp, TransferClass,
+    GrantRevokeRequest, InvocationState, Mode, ReadRequest, ReleaseReason, Request, RequestBody,
+    Response, ResponseBody, Timestamp, TransferClass,
 };
 use tokio::time::Instant;
 
@@ -18,6 +18,9 @@ use super::test_support::{
     envelope, far, producer_called, signal,
 };
 use super::{fresh_id, request_digest};
+
+mod expiry;
+mod serving;
 
 fn failure(response: &Response) -> Option<Failure> {
     match response.body {
@@ -427,41 +430,6 @@ async fn read_chunks_fit_the_frame_bound() {
         bytes.extend(chunk.bytes);
     }
     assert_eq!(bytes, envelope(), "the chunks reassemble the envelope");
-}
-
-#[tokio::test]
-async fn ingest_of_a_readable_artifact_answers_producer_unavailable() {
-    let rig = Rig::new();
-    let first = run(&rig, "ingest-source", OK).await;
-    let ResponseBody::Captured(outcome) = first.body else {
-        panic!("capture failed");
-    };
-    let ingest = RequestBody::Ingest(IngestRequest {
-        artifact_ref: outcome.artifact_ref,
-    });
-    let missing = RequestBody::Ingest(IngestRequest {
-        artifact_ref: syntheke::ArtifactRef::from_bytes([3; 16]),
-    });
-
-    let accepted = rig
-        .call(
-            OPERATOR,
-            rig.request(ROOT, Some("ingest"), Mode::Execute, ingest),
-        )
-        .await;
-    let absent = rig
-        .call(
-            OPERATOR,
-            rig.request(ROOT, Some("ingest-x"), Mode::Execute, missing),
-        )
-        .await;
-
-    assert_eq!(
-        failure(&accepted),
-        Some(Failure::ProducerUnavailable),
-        "no knowledge pipeline accepts it in Phase 01"
-    );
-    assert_eq!(failure(&absent), Some(Failure::NotFoundOrDenied), "missing");
 }
 
 #[tokio::test]

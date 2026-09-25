@@ -8,7 +8,7 @@
 
 use syntheke::{Capability, Cost, GrantIssueRequest, Plan, RequestBody};
 
-use super::capture::capture_cost;
+use super::limits::capture_cost;
 use super::{Call, Inner, Reply};
 use crate::error::Error;
 use crate::producer::Producer;
@@ -19,7 +19,8 @@ impl<P: Producer> Inner<P> {
         let zero = Cost::default();
         let plan = match body {
             RequestBody::Capture(capture) => {
-                let declared = capture_cost(&capture.limits, call.deadline_ms);
+                let limits = self.capture_limits(call, capture.limits)?;
+                let declared = capture_cost(&limits, call.deadline_ms);
                 self.decide(&Self::authz(
                     call,
                     Capability::Capture,
@@ -59,9 +60,7 @@ impl<P: Producer> Inner<P> {
             RequestBody::Read(read) => {
                 self.artifact_plan(call, Capability::Read, read.artifact_ref)?
             }
-            RequestBody::Ingest(ingest) => {
-                self.artifact_plan(call, Capability::Ingest, ingest.artifact_ref)?
-            }
+            RequestBody::Ingest(_) => self.ingest_plan(call)?,
             RequestBody::GrantIssue(issue) => self.issue_plan(call, issue)?,
             RequestBody::GrantRevoke(revoke) => {
                 let refusal = self.revoke_decision(call, revoke.target_grant)?.refusal();

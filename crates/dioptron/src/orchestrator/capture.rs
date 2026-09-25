@@ -4,7 +4,6 @@
 //! and running calls, § Cancellation and deadline).
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use phylake::store::{
@@ -12,39 +11,26 @@ use phylake::store::{
 };
 use snafu::ResultExt as _;
 use syntheke::{
-    Capability, CaptureLimits, CaptureOutcome, CaptureRequest, Cost, Failure, InvocationId,
-    ReleaseReason, ResponseBody, TransferClass,
+    Capability, CaptureLimits, CaptureOutcome, CaptureRequest, Cost, DenyCode, Failure, GrantId,
+    InvocationId, InvocationState, ReleaseReason, ResponseBody, TransferClass,
 };
-use tokio::time::{Instant, sleep_until};
+use tokio::time::{Instant, sleep, sleep_until};
 
+use super::limits::capture_cost;
 use super::{Call, Inner, Registration, Reply, internal};
 use crate::cancel::CancelSignal;
 use crate::error::{Error, StoreSnafu};
 use crate::producer::{AcquireRequest, Producer, ProducerError, ProducerOutput};
-
-/// Declared transfer bound when the caller sets none: the first
-/// consumer's 1 MB body cap.
-pub(super) const DEFAULT_MAX_TRANSFER: u64 = 1_048_576;
-
-/// Declared output bound when the caller sets none.
-pub(super) const DEFAULT_MAX_OUTPUT: u64 = 65_536;
 
 /// How long past its deadline a producer may take to report how it
 /// stopped before the call is resolved as `UnknownEffect`. Shorter than
 /// the server's dispatch grace, so the reply still reaches the caller.
 const PRODUCER_GRACE: Duration = Duration::from_secs(1);
 
-/// The declared maximum cost of a capture.
-pub(super) fn capture_cost(limits: &CaptureLimits, deadline_ms: u32) -> Cost {
-    Cost {
-        wall_time_ms: u64::from(deadline_ms),
-        fetches: 1,
-        bytes_transferred: limits.max_transfer_bytes.unwrap_or(DEFAULT_MAX_TRANSFER),
-        output_bytes: limits.max_output_bytes.unwrap_or(DEFAULT_MAX_OUTPUT),
-        tokens: 0,
-        ops_band: 0,
-    }
-}
+/// How often a running capture re-checks its chain, so a link that
+/// expires, or is revoked by any path, stops the producer. Polling reads
+/// the injected clock, so a test clock moves it too.
+const CHAIN_POLL: Duration = Duration::from_millis(100);
 
 /// One invocation's signals and timing while it runs.
 #[derive(Clone, Copy)]
@@ -53,7 +39,7 @@ struct Flight<'a> {
     cancel: &'a CancelSignal,
     /// The request deadline on the monotonic clock.
     deadline: Instant,
-    /// The running-set entry: the producer's signal and the revoked flag.
+    /// The running-set entry: the producer's cancel signal and handle.
     registration: &'a Registration,
     /// When the call started, for the wall-time actual.
     started: Instant,
@@ -67,6 +53,14 @@ enum Produced {
     Error(ProducerError),
     /// The producer did not return within its grace.
     Abandoned,
+}
+
+/// What B1 answered.
+enum Started {
+    /// B1 committed under these limits.
+    Persisted(InvocationStatus, CaptureLimits),
+    /// The reply is final without running anything.
+    Answered(Reply),
 }
 
 impl<P: Producer> Inner<P> {
@@ -85,14 +79,9 @@ impl<P: Producer> Inner<P> {
             self.run_step(move |this| this.begin_capture(&call, &capture))
                 .await
         };
-        let status = match begin {
-            Ok(Begin::Persisted(status)) => status,
-            Ok(Begin::Replayed(status)) => {
-                return self.run_blocking(move |this| this.replay(&status)).await;
-            }
-            Ok(Begin::Conflict) => return Reply::failed(Failure::IdempotencyConflict),
-            Ok(Begin::Refused { failure, .. }) => return Reply::failed(failure),
-            Ok(_) => return Reply::failed(Failure::UnknownEffect),
+        let (status, limits) = match begin {
+            Ok(Started::Persisted(status, limits)) => (status, limits),
+            Ok(Started::Answered(reply)) => return reply,
             Err(error) => return internal(&error),
         };
         let id = status.id;
@@ -103,29 +92,33 @@ impl<P: Producer> Inner<P> {
             registration: &registration,
             started,
         };
-        let reply = self.run_invocation(&call, &capture, id, &flight).await;
+        let reply = self
+            .run_invocation(&call, &capture, limits, id, &flight)
+            .await;
         self.deregister(id);
         match reply {
             Ok(reply) => reply,
             Err(error) => {
-                // WHY: the step that failed may have been B3 or later,
-                // which no release can undo; recovery at the next start
-                // finishes it. Marking UnknownEffect succeeds only while
-                // the call is at B2, so its own failure is expected.
-                let _marked = self
-                    .run_step(move |this| this.store.mark_unknown_effect(id).context(StoreSnafu))
-                    .await;
-                internal(&error)
+                warn_internal(&error);
+                // WHY: the lifecycle owns its reservation; a failed step
+                // must not leave it held until the next restart.
+                self.run_step(move |this| this.after_error(id))
+                    .await
+                    .unwrap_or_else(|error| internal(&error))
             }
         }
     }
 
-    /// B1: authorizes and persists the intent, or answers a replay.
-    fn begin_capture(&self, call: &Call, capture: &CaptureRequest) -> Result<Begin, Error> {
+    /// B1: authorizes and persists the intent, or answers a replay, a
+    /// conflict, or a refusal.
+    fn begin_capture(&self, call: &Call, capture: &CaptureRequest) -> Result<Started, Error> {
         let Some(key) = &call.key else {
-            return Ok(Begin::Conflict);
+            // WHY: the wire refuses an executed capture without a key;
+            // reaching here is a protocol fault, never a conflict.
+            return Ok(Started::Answered(Reply::failed(Failure::ProtocolError)));
         };
-        let declared = capture_cost(&capture.limits, call.deadline_ms);
+        let limits = self.capture_limits(call, capture.limits)?;
+        let declared = capture_cost(&limits, call.deadline_ms);
         let authz = Self::authz(
             call,
             Capability::Capture,
@@ -134,7 +127,13 @@ impl<P: Producer> Inner<P> {
             declared,
         );
         let intent = Intent::new(self.fresh_invocation()?, authz, key, call.digest);
-        self.store.begin(&intent).context(StoreSnafu)
+        Ok(match self.store.begin(&intent).context(StoreSnafu)? {
+            Begin::Persisted(status) => Started::Persisted(status, limits),
+            Begin::Replayed(status) => Started::Answered(self.replay_capture(call, &status)?),
+            Begin::Conflict => Started::Answered(Reply::failed(Failure::IdempotencyConflict)),
+            Begin::Refused { failure, .. } => Started::Answered(Reply::failed(failure)),
+            _ => Started::Answered(Reply::failed(Failure::UnknownEffect)),
+        })
     }
 
     /// B1 committed: re-check, dispatch, call the producer, and finish.
@@ -142,6 +141,7 @@ impl<P: Producer> Inner<P> {
         self: &Arc<Self>,
         call: &Call,
         capture: &CaptureRequest,
+        limits: CaptureLimits,
         id: InvocationId,
         flight: &Flight<'_>,
     ) -> Result<Reply, Error> {
@@ -160,17 +160,14 @@ impl<P: Producer> Inner<P> {
         let request = AcquireRequest {
             invocation: id,
             target: capture.target.clone(),
-            limits: capture.limits,
+            limits,
             egress_policy: capture.egress_policy.clone(),
         };
-        let produced = self.produce(request, flight).await;
+        let produced = self.produce(request, grant, flight).await;
         let elapsed = elapsed_ms(flight.started);
         match produced {
-            Produced::Output(output) => self.finish(call, capture, id, output, elapsed).await,
-            Produced::Error(error) => {
-                let revoked = flight.registration.revoked.load(Ordering::SeqCst);
-                self.fail(id, error, revoked, deadline, elapsed).await
-            }
+            Produced::Output(output) => self.finish(call, limits, id, output, elapsed).await,
+            Produced::Error(error) => self.fail(grant, id, error, deadline, elapsed).await,
             Produced::Abandoned => {
                 self.run_step(move |this| this.store.mark_unknown_effect(id).context(StoreSnafu))
                     .await?;
@@ -180,16 +177,16 @@ impl<P: Producer> Inner<P> {
     }
 
     /// The release reason when the call must stop before dispatch: the
-    /// chain is no longer usable (re-checked at dispatch), the caller
-    /// cancelled, or the deadline passed.
+    /// chain is no longer usable (re-checked at dispatch; revoked or
+    /// expired), the caller cancelled, or the deadline passed.
     pub(super) fn pre_dispatch(
         &self,
-        grant: syntheke::GrantId,
+        grant: GrantId,
         cancelled: bool,
         deadline: Instant,
     ) -> Result<Option<ReleaseReason>, Error> {
-        if self.chain_refusal(grant)?.is_some() {
-            return Ok(Some(ReleaseReason::Revoked));
+        if let Some(code) = self.chain_refusal(grant)? {
+            return Ok(Some(chain_stop(code)));
         }
         if cancelled {
             return Ok(Some(ReleaseReason::Cancelled));
@@ -200,10 +197,30 @@ impl<P: Producer> Inner<P> {
         Ok(None)
     }
 
+    /// Why a dispatched call stopped, re-checked after the producer
+    /// returned: the chain (revocation before expiry, in walk order), then
+    /// the deadline, then the caller's cancel.
+    pub(super) fn stop_reason(
+        &self,
+        grant: GrantId,
+        deadline: Instant,
+    ) -> Result<ReleaseReason, Error> {
+        Ok(match self.chain_refusal(grant)? {
+            Some(code) => chain_stop(code),
+            None if Instant::now() >= deadline => ReleaseReason::DeadlineExceeded,
+            None => ReleaseReason::Cancelled,
+        })
+    }
+
     /// Calls the producer with a signal that fires on the caller's cancel,
-    /// a revocation, or the deadline, and waits at most until the deadline
-    /// plus [`PRODUCER_GRACE`].
-    async fn produce(&self, request: AcquireRequest, flight: &Flight<'_>) -> Produced {
+    /// the deadline, a revocation, or a chain that stops being usable, and
+    /// waits at most until the deadline plus [`PRODUCER_GRACE`].
+    async fn produce(
+        self: &Arc<Self>,
+        request: AcquireRequest,
+        grant: GrantId,
+        flight: &Flight<'_>,
+    ) -> Produced {
         let Flight {
             cancel,
             deadline,
@@ -212,10 +229,12 @@ impl<P: Producer> Inner<P> {
         } = *flight;
         let forward_to = Arc::clone(&registration.cancel);
         let caller = cancel.clone();
+        let watcher = Arc::clone(self);
         let forward = tokio::spawn(async move {
             tokio::select! {
                 () = caller.cancelled() => {}
                 () = sleep_until(deadline) => {}
+                () = watcher.chain_lost(grant) => {}
             }
             forward_to.cancel();
         });
@@ -234,35 +253,43 @@ impl<P: Producer> Inner<P> {
         produced
     }
 
+    /// Completes once `grant`'s chain is no longer usable, or cannot be
+    /// read (the closed side).
+    async fn chain_lost(self: Arc<Self>, grant: GrantId) {
+        loop {
+            sleep(CHAIN_POLL).await;
+            let this = Arc::clone(&self);
+            let live = tokio::task::spawn_blocking(move || this.chain_refusal(grant)).await;
+            if !matches!(live, Ok(Ok(None))) {
+                return;
+            }
+        }
+    }
+
     /// The producer returned output: B3, B4, B5.
     async fn finish(
         self: &Arc<Self>,
         call: &Call,
-        capture: &CaptureRequest,
+        limits: CaptureLimits,
         id: InvocationId,
         output: ProducerOutput,
         elapsed: u64,
     ) -> Result<Reply, Error> {
-        let transfer_cap = capture
-            .limits
-            .max_transfer_bytes
-            .unwrap_or(DEFAULT_MAX_TRANSFER);
-        let transferred = u64::try_from(output.envelope.len()).unwrap_or(u64::MAX);
-        if transferred > transfer_cap {
+        let transferred = len_u64(&output.envelope);
+        if transferred > limits.max_transfer_bytes.unwrap_or(0) {
             let failure = Failure::TransferFailed {
                 class: TransferClass::TooLarge,
             };
-            let actual = spent(elapsed, 0);
-            return self.settle_failed(id, failure, actual).await;
+            return self.settle_failed(id, failure, spent(elapsed, 0)).await;
         }
         let call = call.clone();
-        let limits = capture.limits;
         self.run_step(move |this| this.publish(&call, &limits, id, &output, elapsed))
             .await
     }
 
     /// B3 through B5 for a returned output; re-checks the chain at
-    /// settlement and marks the capture when it was revoked meanwhile.
+    /// settlement and marks the capture when it was revoked or expired
+    /// meanwhile.
     fn publish(
         &self,
         call: &Call,
@@ -271,21 +298,19 @@ impl<P: Producer> Inner<P> {
         output: &ProducerOutput,
         elapsed: u64,
     ) -> Result<Reply, Error> {
+        // NOTE: the one marker covers both ways a chain stops being live
+        // after the effect started; the contract carries no second flag.
         let revoked_after_effect = self.chain_refusal(call.grant)?.is_some();
-        let output_cap = limits.max_output_bytes.unwrap_or(DEFAULT_MAX_OUTPUT);
         let source = output.source();
         let frame_room = u64::from(call.payload_budget()).saturating_sub(source_len(&source));
-        let (text_view, truncated) =
-            cut_text(output.text_view.as_deref(), output_cap.min(frame_room));
+        let output_cap = limits.max_output_bytes.unwrap_or(0).min(frame_room);
+        let (text_view, truncated) = cut_text(output.text_view.as_deref(), output_cap);
         let output_bytes = text_view
             .as_ref()
             .map_or(0, |text| len_u64(text.as_bytes()));
-        let artifact = artifact_ref(id);
-        let mut transfer = Transfer::new(&output.envelope, source.clone(), {
-            let mut actual = spent(elapsed, len_u64(&output.envelope));
-            actual.output_bytes = output_bytes;
-            actual
-        });
+        let mut actual = spent(elapsed, len_u64(&output.envelope));
+        actual.output_bytes = output_bytes;
+        let mut transfer = Transfer::new(&output.envelope, source.clone(), actual);
         transfer.text_view.clone_from(&text_view);
         transfer.truncated = truncated;
         transfer.output_bytes = output_bytes;
@@ -298,7 +323,7 @@ impl<P: Producer> Inner<P> {
             .settle(id, SettleOutcome::Success)
             .context(StoreSnafu)?;
         let outcome = CaptureOutcome {
-            artifact_ref: artifact,
+            artifact_ref: artifact_ref(id),
             source,
             text_view,
             truncated,
@@ -312,26 +337,24 @@ impl<P: Producer> Inner<P> {
     /// settle the actual cost otherwise.
     async fn fail(
         self: &Arc<Self>,
+        grant: GrantId,
         id: InvocationId,
         error: ProducerError,
-        revoked: bool,
         deadline: Instant,
         elapsed: u64,
     ) -> Result<Reply, Error> {
-        let stop = if revoked {
-            ReleaseReason::Revoked
-        } else if Instant::now() >= deadline {
-            ReleaseReason::DeadlineExceeded
-        } else {
-            ReleaseReason::Cancelled
-        };
         match error {
             ProducerError::Unavailable { contacted: false } => {
                 self.release(id, ReleaseReason::ProducerUnavailable).await
             }
             ProducerError::Cancelled {
                 effect_started: false,
-            } => self.release(id, stop).await,
+            } => {
+                let stop = self
+                    .run_step(move |this| this.stop_reason(grant, deadline))
+                    .await?;
+                self.release(id, stop).await
+            }
             ProducerError::Transfer { class } => {
                 self.settle_failed(id, Failure::TransferFailed { class }, spent(elapsed, 0))
                     .await
@@ -350,13 +373,14 @@ impl<P: Producer> Inner<P> {
             }
             // NOTE: a producer that stopped after its effect started
             // returned no envelope, so there is nothing to publish; the
-            // call settles its actual cost. A revocation that stopped it
-            // reads as a cancellation: the effect happened under a grant
-            // that was live when it started.
+            // call settles its actual cost (contract § Early stops). A
+            // revocation or expiry that stopped it reads as a
+            // cancellation: the effect started under a live chain.
             ProducerError::Cancelled {
                 effect_started: true,
             } => {
-                let failure = if stop == ReleaseReason::DeadlineExceeded {
+                let past_deadline = Instant::now() >= deadline;
+                let failure = if past_deadline {
                     Failure::DeadlineExceeded
                 } else {
                     Failure::Cancelled
@@ -375,14 +399,10 @@ impl<P: Producer> Inner<P> {
         let status = self
             .run_step(move |this| this.store.release(id, reason).context(StoreSnafu))
             .await?;
+        let terminal = status.terminal.unwrap_or(Terminal::Released { reason });
         Ok(Reply::of(
             id,
-            ResponseBody::Failed(
-                status
-                    .terminal
-                    .and_then(Terminal::reply_failure)
-                    .unwrap_or(release_failure(reason)),
-            ),
+            ResponseBody::Failed(terminal.reply_failure().unwrap_or(Failure::Cancelled)),
         ))
     }
 
@@ -400,6 +420,41 @@ impl<P: Producer> Inner<P> {
         })
         .await?;
         Ok(Reply::of(id, ResponseBody::Failed(failure)))
+    }
+
+    /// Resolves an invocation whose step failed inside the daemon: a call
+    /// still at B1 releases as `Abandoned` (the producer was never
+    /// called), a call at B2 becomes `UnknownEffect`, and a call at B3 or
+    /// later is left for restart recovery to roll forward.
+    pub(super) fn after_error(&self, id: InvocationId) -> Result<Reply, Error> {
+        let Some(status) = self.store.invocation(id).context(StoreSnafu)? else {
+            return Ok(Reply::failed(Failure::UnknownEffect));
+        };
+        let status = match status.state {
+            InvocationState::IntentPersisted => self
+                .store
+                .release(id, ReleaseReason::Abandoned)
+                .context(StoreSnafu)?,
+            InvocationState::Dispatched => {
+                self.store.mark_unknown_effect(id).context(StoreSnafu)?
+            }
+            _ => status,
+        };
+        match status.terminal {
+            Some(_) => self.replay(&status),
+            None => Ok(Reply::of(id, ResponseBody::Failed(Failure::UnknownEffect))),
+        }
+    }
+
+    /// The reply to a replayed capture: the designated chain is
+    /// re-authorized first, and a chain that no longer authorizes the
+    /// capture is refused with the current reason, never answered with
+    /// stored content.
+    fn replay_capture(&self, call: &Call, status: &InvocationStatus) -> Result<Reply, Error> {
+        if let Some(failure) = self.replay_refusal(call, Capability::Capture)? {
+            return self.deny(call, Capability::Capture, None, failure);
+        }
+        self.replay(status)
     }
 
     /// The reply for an idempotent replay: the current or terminal outcome
@@ -450,14 +505,22 @@ impl<P: Producer> Inner<P> {
     }
 }
 
-/// The failure a caller observes for a call that stopped for `reason`.
-const fn release_failure(reason: ReleaseReason) -> Failure {
-    match reason {
-        ReleaseReason::Revoked => Failure::denied(syntheke::DenyCode::GrantRevoked),
-        ReleaseReason::ProducerUnavailable => Failure::ProducerUnavailable,
-        ReleaseReason::DeadlineExceeded => Failure::DeadlineExceeded,
-        _ => Failure::Cancelled,
+/// The release reason for a chain that stopped being usable with `code`:
+/// `Expired` for an expired link, `Revoked` for every other reason.
+///
+/// NOTE: `GrantNotYetValid` after a successful B1 needs the clock to move
+/// backward; it releases as `Revoked`, the closed reading of a chain that
+/// no longer authorizes.
+pub(super) const fn chain_stop(code: DenyCode) -> ReleaseReason {
+    match code {
+        DenyCode::GrantExpired => ReleaseReason::Expired,
+        _ => ReleaseReason::Revoked,
     }
+}
+
+/// Logs a daemon failure without payload.
+fn warn_internal(error: &Error) {
+    tracing::warn!(%error, "capture step failed inside the daemon");
 }
 
 /// Actual consumption of a call that ran for `elapsed` ms and made one

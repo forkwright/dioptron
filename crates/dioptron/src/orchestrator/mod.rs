@@ -12,9 +12,10 @@
 //!   (`capture.rs`).
 //! - Session and grant calls authorize under the designated grant, bind
 //!   their idempotency key, and write through the store (`directory.rs`).
-//! - `Read`, `Query`, `AuditQuery`, and `Ingest` authorize the session
-//!   they touch and answer within the connection's frame bound
-//!   (`reads.rs`).
+//! - `Read`, `Query`, and `AuditQuery` authorize the session they touch
+//!   and answer within the connection's frame bound; `Ingest` is refused
+//!   as `NotSupported` at authorization (`reads.rs`).
+//! - A capture's declared limits come from `limits.rs`.
 //!
 //! Every `Execute` refusal commits a `Denied` audit entry and answers with
 //! no invocation id, so a refusal's bytes depend only on the failure: a
@@ -22,14 +23,14 @@
 
 mod capture;
 mod directory;
+mod limits;
 mod plan;
 mod reads;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use epitrope::{AuthzRequest, Clock, GrantView as _, check_chain};
+use epitrope::{AuthzRequest, Clock, GrantView as _, check_chain, designated_chain};
 use phylake::Store;
 use phylake::store::{AuditNote, AuditOutcome};
 use sha2::{Digest as _, Sha256};
@@ -217,8 +218,6 @@ struct Running {
     chain: Vec<GrantId>,
     /// Fires the producer's cancel signal.
     cancel: Arc<CancelHandle>,
-    /// Set when a revocation of a chain link cancelled it.
-    revoked: Arc<AtomicBool>,
 }
 
 /// State shared by every request task.
@@ -287,7 +286,7 @@ impl<P: Producer> Inner<P> {
             RequestBody::Read(read) => self.read(call, &read),
             RequestBody::Query(query) => self.query(call, &query),
             RequestBody::AuditQuery(query) => self.audit_query(call, &query),
-            RequestBody::Ingest(ingest) => self.ingest(call, ingest.artifact_ref),
+            RequestBody::Ingest(_) => self.ingest(call),
             // WHY: a capture never reaches here; a body a later contract
             // version adds has no handler, and refusing it is the closed
             // side.
@@ -333,8 +332,31 @@ impl<P: Producer> Inner<P> {
             AuditOutcome::Refused(failure),
         );
         note.session = session;
+        note.grant = Some(call.grant);
         self.store.record_audit(&note).context(StoreSnafu)?;
         Ok(Reply::failed(failure))
+    }
+
+    /// The refusal a replay of `call` gets, or `None` when its designated
+    /// chain still authorizes `capability` (contract § Idempotency).
+    ///
+    /// A replay re-runs the designated-grant checks (the grant, the
+    /// validity of its whole chain, and the capability on every link)
+    /// before it answers anything, so stored content is never returned
+    /// under a chain that has since been revoked or has expired.
+    fn replay_refusal(
+        &self,
+        call: &Call,
+        capability: Capability,
+    ) -> Result<Option<Failure>, Error> {
+        let snapshot = self.store.snapshot();
+        let decided =
+            designated_chain(&snapshot, call.tenant, call.grant, capability, &*self.clock)
+                .context(AuthzSnafu)?;
+        Ok(match decided {
+            Ok(_) => None,
+            Err(refusal) => Some(refusal.refusal().unwrap_or(Failure::NotFoundOrDenied)),
+        })
     }
 
     /// A new invocation id: ULID layout, the clock's milliseconds then 80
@@ -363,20 +385,14 @@ impl<P: Producer> Inner<P> {
     fn register(&self, invocation: InvocationId, chain: Vec<GrantId>) -> Registration {
         let (handle, signal) = crate::cancel::cancel_pair();
         let cancel = Arc::new(handle);
-        let revoked = Arc::new(AtomicBool::new(false));
         self.running_map().insert(
             invocation,
             Running {
                 chain,
                 cancel: Arc::clone(&cancel),
-                revoked: Arc::clone(&revoked),
             },
         );
-        Registration {
-            cancel,
-            signal,
-            revoked,
-        }
+        Registration { cancel, signal }
     }
 
     /// Removes a finished invocation from the running set.
@@ -389,7 +405,6 @@ impl<P: Producer> Inner<P> {
     fn cancel_revoked(&self, revoked: GrantId) {
         for running in self.running_map().values() {
             if running.chain.contains(&revoked) {
-                running.revoked.store(true, Ordering::SeqCst);
                 running.cancel.cancel();
             }
         }
@@ -404,9 +419,10 @@ impl<P: Producer> Inner<P> {
 
 /// What [`Inner::register`] hands the lifecycle.
 struct Registration {
+    /// Fires `signal`.
     cancel: Arc<CancelHandle>,
+    /// The producer's cancel signal.
     signal: CancelSignal,
-    revoked: Arc<AtomicBool>,
 }
 
 /// Sixteen id bytes: 48 bits of milliseconds since the epoch (clamped at
