@@ -414,6 +414,13 @@ the lifecycle before the store is asked. A released invocation's audit entry
 carries its release reason beside the reply kind the contract's audit record
 has room for.
 
+Schema version 1 also stores two authority fields in each audit entry. The
+designated grant is recorded on every entry written with it in hand: a
+`Denied` refusal, an audit read, a grant issue, and a capture's terminal
+entry. The applied audit scope is recorded on every `AuditQuery` read, so
+each audit read records the grant and scope it used, as the contract's audit
+partitions require. Both fields are tenant-sealed with the rest of the entry.
+
 ## Retrieval is a projection
 
 Full-text and semantic retrieval over stored content are rebuildable projections
