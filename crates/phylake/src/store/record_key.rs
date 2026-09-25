@@ -10,6 +10,13 @@
 //!
 //! The hash input is a domain label followed by length-prefixed parts, so
 //! two different part lists never produce the same input.
+//!
+//! Two keys carry an unhashed suffix after a hashed prefix: an audit entry
+//! ends in its big-endian sequence number, and a session index entry ends
+//! in the artifact id, so each range scans in order. Neither suffix holds a
+//! tenant, session, or idempotency component; an artifact id is a ULID and
+//! leaks only its creation time, as the design accepts. The global
+//! `audit_stub` key is the bare sequence number.
 
 use syntheke::{
     ArtifactRef, Capability, GrantId, IdempotencyKey, InvocationId, SessionId, TenantId,

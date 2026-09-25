@@ -514,6 +514,8 @@ impl Store {
     ///
     /// NOTE: keys are cached only after they are read from a committed
     /// record, so a rolled-back registration never leaves a cached key.
+    /// Tenant data-key rotation and crypto-shredding must evict the entry
+    /// in the transaction that retires the key.
     fn tenant_keys<R: Readable>(&self, reader: &R, tenant: TenantId) -> Result<Arc<TenantKeys>> {
         let cached = self
             .tenant_keys

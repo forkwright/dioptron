@@ -606,6 +606,37 @@ fn session_query_pages_in_artifact_order() {
 }
 
 #[test]
+fn two_pending_captures_cannot_publish_one_artifact_id() {
+    let fixture = Fixture::new();
+    let store = fixture.seeded();
+    for byte in [1, 2] {
+        persist(&store, byte);
+        store.dispatch(invocation(byte)).expect("B2");
+        store
+            .complete_transfer(invocation(byte), &transfer())
+            .expect("B3");
+    }
+    store.publish(invocation(1)).expect("first publish");
+    let before = dump(&store);
+    let error = store.publish(invocation(2)).expect_err("second publish");
+    assert!(
+        matches!(
+            error,
+            Error::Conflict {
+                what: "artifact",
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        dump(&store),
+        before,
+        "the published artifact is not rewritten"
+    );
+}
+
+#[test]
 fn republishing_an_artifact_id_conflicts() {
     let fixture = Fixture::new();
     let store = fixture.seeded();

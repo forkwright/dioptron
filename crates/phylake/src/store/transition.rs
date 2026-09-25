@@ -174,6 +174,15 @@ impl Store {
             .context(InconsistentSnafu {
                 what: "transfer-complete invocation has no pending record",
             })?;
+        let locator_key = record_key::store::locator(self.keys.index(), artifact.artifact)?;
+        // WHY re-check: two invocations may both reach B3 with the same
+        // artifact id (a caller bug); the second publish must not rewrite
+        // the first's published artifact (R4.4).
+        ensure!(
+            !tx.contains_key(self.ks.get(slot::LOCATOR.keyspace)?, locator_key)
+                .context(DatabaseSnafu)?,
+            ConflictSnafu { what: "artifact" }
+        );
         let now = self.now();
         artifact.published_at = Some(now);
         let side_key =
@@ -185,7 +194,6 @@ impl Store {
             owner: record.tenant,
             session: record.session,
         };
-        let locator_key = record_key::store::locator(self.keys.index(), artifact.artifact)?;
         self.put_global(tx, slot::LOCATOR, &locator_key, &locator)?;
         if let Some(session) = record.session {
             let owner = View {
