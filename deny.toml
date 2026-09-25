@@ -21,6 +21,9 @@ allow = [
     # rkyv, bytecheck, rancor, snafu, serde, toml, and their build deps.
     "MIT",
     "Apache-2.0",
+    # ed25519-dalek, curve25519-dalek, and subtle (Ed25519 tenant
+    # authentication).
+    "BSD-3-Clause",
     # unicode-ident, a proc-macro build dependency.
     "Unicode-3.0",
 ]
