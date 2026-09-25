@@ -1,0 +1,17 @@
+[meta]
+name = "neg_session_required"
+kind = "negative"
+clause = "A call of a capability that requires a session and names none returns Denied{SessionRequired}."
+
+[request]
+capability = "Query"
+mode = "Execute"
+tenant = "01j8k7r3v9zq4n5m6p7s8tnt0b"
+grant = "01j8k7r3v9zq4n5m6p7s8grn0b"
+predicate = "artifact.origin = example.com"
+
+[expected]
+outcome = "Denied"
+code = "SessionRequired"
+producer_calls = 0
+echoes_ref = false
