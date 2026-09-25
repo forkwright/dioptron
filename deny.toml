@@ -13,13 +13,16 @@ all-features = true
 ignore = []
 
 [licenses]
-# WHY only the workspace's own license: the skeleton crates have no
-# external dependencies, and cargo-deny warns on allowances no crate uses.
-# Each implementation slice adds the licenses its new dependencies need
-# (for example MIT, Apache-2.0, BSD-3-Clause, Unicode-3.0), with the
+# NOTE: cargo-deny warns on allowances no crate uses, so each
+# implementation slice adds the licenses its new dependencies need, with the
 # dependency that needs them.
 allow = [
     "LicenseRef-PolyForm-Noncommercial-1.0.0",
+    # rkyv, bytecheck, rancor, snafu, serde, toml, and their build deps.
+    "MIT",
+    "Apache-2.0",
+    # unicode-ident, a proc-macro build dependency.
+    "Unicode-3.0",
 ]
 confidence-threshold = 0.8
 
@@ -30,6 +33,14 @@ wildcards = "deny"
 # version. Publishable crates still pin internal dependencies by version,
 # declared once in [workspace.dependencies].
 allow-wildcard-paths = true
+# WHY: the ecosystem is mid-migration from syn 2 to syn 3. rkyv_derive and
+# bytecheck_derive use syn 3 while snafu-derive and munge_macro (inside
+# rkyv) still use syn 2. Both copies are proc-macro build dependencies and
+# never reach a built artifact. Drop this entry once snafu and munge move
+# to syn 3.
+skip = [
+    { crate = "syn@2", reason = "proc-macro build dependency split across syn 2 and syn 3" },
+]
 
 [sources]
 unknown-registry = "deny"

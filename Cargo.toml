@@ -67,9 +67,26 @@ trivially_copy_pass_by_ref = "warn"
 unused_self = "warn"
 inefficient_to_string = "warn"
 
-# WHY no [workspace.dependencies] yet: the skeleton crates use no external
-# crate. Each implementation slice declares the dependencies it introduces,
+# NOTE: each implementation slice declares the dependencies it introduces,
 # with its justification, in the same change.
+[workspace.dependencies]
+# WHY rkyv: docs/design/topology.md fixes rkyv as the wire format; 0.8 with
+# bytecheck validates an archive before any field is read. The format
+# features are named explicitly so a crate enabling a conflicting format
+# (big endian, other pointer width) fails the build instead of changing the
+# wire layout.
+rkyv = { version = "0.8.18", default-features = false, features = [
+    "std",
+    "bytecheck",
+    "little_endian",
+    "aligned",
+    "pointer_width_32",
+] }
+# WHY snafu: the fleet error library (kanon RUST.md); thiserror is banned.
+snafu = "0.9.2"
+# WHY toml (dev only): the contract fixtures are TOML files that the
+# syntheke conformance test parses.
+toml = "1.1.6"
 
 [profile.dev.package."*"]
 opt-level = 2
