@@ -7,3 +7,4 @@ mod directory;
 mod disk;
 mod lifecycle;
 mod open;
+mod serving;

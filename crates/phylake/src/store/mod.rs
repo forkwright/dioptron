@@ -24,6 +24,8 @@
 //! cannot distinguish absence from a record the caller may not see.
 
 mod audit;
+mod audit_query;
+mod claim;
 mod codec;
 mod directory;
 mod failpoint;
@@ -70,6 +72,8 @@ use crate::error::{
 use crate::keyfile::RootKey;
 
 pub use self::audit::AuditEntry;
+pub use self::audit_query::{AuditQuery, AuditRead};
+pub use self::claim::{Claimed, IdemClaim};
 pub use self::directory::{
     GrantIssue, IssueOutcome, NewSession, RevokeGrant, RootGrant, TenantRegistration,
 };
