@@ -3,7 +3,7 @@
 use super::*;
 use crate::Error;
 
-use test_support::{FailingEntropy, ShortEntropy, unhex};
+use test_support::{FailingEntropy, PATTERN_32_HEX, PatternEntropy, ShortEntropy, unhex};
 
 // RFC 5869 Appendix A, Test Case 1 (basic SHA-256).
 #[test]
@@ -125,6 +125,25 @@ fn os_entropy_fills_buffer() {
     let a: [u8; 32] = random_array(&mut OsEntropy).expect("draw");
     let b: [u8; 32] = random_array(&mut OsEntropy).expect("draw");
     assert_ne!(a, b, "two 256-bit draws differ");
+}
+
+#[test]
+fn random_secret_array_returns_drawn_bytes_and_wipes() {
+    let mut drawn: Zeroizing<[u8; 32]> = random_secret_array(&mut PatternEntropy).expect("draw");
+    assert_eq!(drawn.as_slice(), unhex(PATTERN_32_HEX), "drawn bytes");
+    drawn.zeroize();
+    assert!(drawn.iter().all(|&b| b == 0), "wiped");
+}
+
+#[test]
+fn random_secret_array_surfaces_entropy_and_length_failures() {
+    let err = random_secret_array::<32>(&mut FailingEntropy);
+    assert!(matches!(err, Err(Error::Entropy { .. })), "entropy");
+    let err = random_secret_array::<32>(&mut ShortEntropy);
+    assert!(
+        matches!(err, Err(Error::Malformed { len: 1, .. })),
+        "short fill"
+    );
 }
 
 #[test]

@@ -7,7 +7,7 @@ use zeroize::ZeroizeOnDrop;
 
 use super::{
     BlobAddress, Entropy, KEY_LEN, KeyCheck, KeyId, OsEntropy, hkdf_expand, hkdf_extract,
-    hmac_sha256, hmac_sha256_verify, random_array,
+    hmac_sha256, hmac_sha256_verify, random_array, random_secret_array,
 };
 use crate::Result;
 use crate::error::StoreLockedSnafu;
@@ -239,7 +239,9 @@ impl TenantDataKey {
     }
 
     pub(crate) fn generate_with(id: KeyId, entropy: &mut impl Entropy) -> Result<Self> {
-        let bytes = SecretBox::new(Box::new(random_array::<KEY_LEN>(entropy)?));
+        let drawn = random_secret_array::<KEY_LEN>(entropy)?;
+        let bytes =
+            SecretBox::init_with_mut(|key: &mut [u8; KEY_LEN]| key.copy_from_slice(&*drawn));
         Ok(Self { id, bytes })
     }
 

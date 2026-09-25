@@ -2,7 +2,10 @@
 
 use super::*;
 use crate::Error;
-use crate::crypto::test_support::{FailingEntropy, ROOT_BYTES, ROOT_ID, store_keys, tenant_key};
+use crate::crypto::test_support::{
+    FailingEntropy, PATTERN_32_HEX, PatternEntropy, ROOT_BYTES, ROOT_ID, store_keys, tenant_key,
+    unhex,
+};
 
 fn all_store_subkeys(keys: &StoreKeys) -> Vec<[u8; 32]> {
     vec![
@@ -175,6 +178,13 @@ fn generate_draws_distinct_keys_and_surfaces_entropy_failure() {
     );
     let err = StoreSalt::generate_with(&mut FailingEntropy);
     assert!(matches!(err, Err(Error::Entropy { .. })), "salt entropy");
+}
+
+#[test]
+fn generate_keeps_exactly_the_drawn_bytes() {
+    let key = TenantDataKey::generate_with(KeyId::new(7), &mut PatternEntropy).expect("generate");
+    assert_eq!(key.id(), KeyId::new(7), "id kept");
+    assert_eq!(key.expose().as_slice(), unhex(PATTERN_32_HEX), "key bytes");
 }
 
 fn assert_no_key_bytes(shown: &str, key: &[u8; 32]) {
