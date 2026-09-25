@@ -3,7 +3,9 @@
 //! Decoding follows the contract's order: bound the length before touching
 //! the bytes, copy into an aligned buffer, validate the whole archive, and
 //! only then read fields. A body that fails any step is never accessed as a
-//! typed value.
+//! typed value. A body that validates is accepted only if it is the
+//! canonical encoding of the value it decodes to, so every value has exactly
+//! one accepted body.
 
 use rkyv::api::high::{HighDeserializer, HighSerializer, HighValidator};
 use rkyv::bytecheck::CheckBytes;
@@ -15,7 +17,7 @@ use snafu::{OptionExt as _, ResultExt as _, ensure};
 
 use crate::error::{
     BodyLengthMismatchSnafu, EncodeSnafu, Error, FrameTooLargeSnafu, InvalidArchiveSnafu,
-    UnexpectedFrameKindSnafu,
+    NonCanonicalSnafu, UnexpectedFrameKindSnafu,
 };
 use crate::wire::{FrameHeader, FrameKind, HEADER_LEN, clamp_cap};
 
@@ -104,16 +106,29 @@ where
 /// The length is checked against `cap` (clamped to
 /// [`crate::HARD_MAX_BODY`]) before the bytes are copied or read. The body
 /// is then copied into an aligned buffer, validated as a whole archive, and
-/// deserialized; finally [`Message::check`] runs.
+/// deserialized. The value is re-encoded and must reproduce `body` byte for
+/// byte; finally [`Message::check`] runs.
+///
+/// WHY the re-encode: the archive root sits at the end of the buffer, so
+/// the validator accepts bytes the archive never references (a prefix, a
+/// gap, or a relocated subobject). Requiring the canonical encoding gives
+/// each value exactly one accepted body. The serializer is deterministic
+/// for every wire type: padding is written as zeros, string layout depends
+/// only on length, and no wire type holds an unordered container or a
+/// shared pointer.
 ///
 /// # Errors
 ///
 /// [`Error::FrameTooLarge`] for an over-bound body, [`Error::InvalidArchive`]
-/// for a body that is corrupt, truncated, or of another type, or the
+/// for a body that is corrupt, truncated, or of another type,
+/// [`Error::NonCanonical`] for a valid archive that is not the canonical
+/// encoding of its value, [`Error::Encode`] if the re-encode fails, or the
 /// message's [`Message::check`] error.
 pub fn decode<T>(body: &[u8], cap: u32) -> Result<T, Error>
 where
-    T: Message + Archive,
+    T: Message
+        + Archive
+        + for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>,
     T::Archived: for<'a> CheckBytes<HighValidator<'a, rancor::Error>>
         + Deserialize<T, HighDeserializer<rancor::Error>>,
 {
@@ -130,6 +145,17 @@ where
     let archived =
         rkyv::access::<T::Archived, rancor::Error>(&aligned).context(InvalidArchiveSnafu)?;
     let message = rkyv::deserialize::<T, rancor::Error>(archived).context(InvalidArchiveSnafu)?;
+    // PERF: one extra encode per received frame, bounded by the 4 MiB hard
+    // body maximum; the cost is linear in the body already copied and
+    // validated, and it closes the only path to a second encoding.
+    let canonical = rkyv::to_bytes::<rancor::Error>(&message).context(EncodeSnafu)?;
+    ensure!(
+        canonical.as_slice() == body,
+        NonCanonicalSnafu {
+            len: len_u64(body.len()),
+            canonical_len: len_u64(canonical.len())
+        }
+    );
     message.check()?;
     Ok(message)
 }
@@ -143,7 +169,9 @@ where
 /// any [`decode`] error.
 pub fn decode_frame<T>(header: &FrameHeader, body: &[u8], cap: u32) -> Result<T, Error>
 where
-    T: Message + Archive,
+    T: Message
+        + Archive
+        + for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>,
     T::Archived: for<'a> CheckBytes<HighValidator<'a, rancor::Error>>
         + Deserialize<T, HighDeserializer<rancor::Error>>,
 {
@@ -163,3 +191,6 @@ where
     );
     decode(body, cap)
 }
+
+#[cfg(test)]
+mod tests;
